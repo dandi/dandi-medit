@@ -169,7 +169,7 @@ export const fetchUrlTool: QPTool = {
 
       // Truncate if too long (to avoid overwhelming the context)
       // 25000 chars accommodates most OpenAlex responses with full authorship data
-      const maxLength = 25000;
+      const maxLength = 250000;
       const truncated = content.length > maxLength;
       const finalContent = truncated
         ? content.substring(0, maxLength) + "\n\n[Content truncated due to length...]"
