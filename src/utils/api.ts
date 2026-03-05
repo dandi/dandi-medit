@@ -33,7 +33,7 @@ export async function fetchDandisets(options: {
 }): Promise<DandisetsPage> {
   const { apiKey, onlyMine = false, order = '-modified', page = 1, pageSize = 25, dandiApiBase } = options;
   const params = new URLSearchParams({
-    order,
+    ordering: order,
     page: String(page),
     page_size: String(pageSize),
   });
