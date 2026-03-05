@@ -395,7 +395,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
                     </TableCell>
                     <TableCell>
                       <Typography variant="caption" color="text.secondary" noWrap>
-                        {formatDate(dandiset.draft_version.modified)}
+                        {formatDate(dandiset.modified)}
                       </Typography>
                     </TableCell>
                     <TableCell>
