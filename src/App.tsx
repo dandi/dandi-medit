@@ -4,6 +4,7 @@ import { Box, AppBar, Toolbar, Typography, IconButton, Alert, Snackbar, Tooltip 
 import InfoIcon from '@mui/icons-material/Info';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { MetadataProvider, useMetadataContext } from './context/MetadataContext';
+import type { DandiInstance } from './utils/dandiInstances';
 import logoIcon from '/logo-white.svg';
 import { MainLayout } from './components/Layout/MainLayout';
 import { ChatPanel } from './components/Chat/ChatPanel';
@@ -68,16 +69,26 @@ function getUrlParams(): { dandisetId: string | null; isReviewMode: boolean } {
   };
 }
 
-// Update URL with dandiset ID
-function updateUrl(dandisetId: string | null) {
+// Update URL with dandiset ID, preserving instance param
+function updateUrl(dandisetId: string | null, instance?: DandiInstance) {
   const url = new URL(window.location.href);
   if (dandisetId) {
     url.searchParams.set('dandiset', dandisetId);
   } else {
     url.searchParams.delete('dandiset');
   }
+  if (instance) {
+    url.searchParams.set('instance', instance.apiUrl);
+  }
   // Clean up any old version params
   url.searchParams.delete('version');
+  window.history.replaceState({}, '', url.toString());
+}
+
+// Update instance in URL without changing other params
+function updateInstanceInUrl(instance: DandiInstance) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('instance', instance.apiUrl);
   window.history.replaceState({}, '', url.toString());
 }
 
@@ -104,6 +115,7 @@ function AppContent() {
     clearModifications,
     apiKey,
     dandiApiBase,
+    dandiInstance,
     setOriginalMetadata,
     setModifiedMetadata
   } = useMetadataContext();
@@ -111,9 +123,14 @@ function AppContent() {
   const [aboutDialogOpen, setAboutDialogOpen] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
   const [isReviewMode, setIsReviewMode] = useState(() => getUrlParams().isReviewMode);
-  
+
   // Track if we have a pending proposal to apply after metadata loads
   const pendingProposalRef = useRef<ProposalData | null>(null);
+
+  // Keep instance param in URL whenever the selected instance changes
+  useEffect(() => {
+    updateInstanceInUrl(dandiInstance);
+  }, [dandiInstance]);
 
   // Handler to exit review mode
   const handleExitReviewMode = useCallback(() => {
@@ -215,8 +232,8 @@ function AppContent() {
   }, []); // Only run on initial mount
 
   const handleDandisetLoaded = useCallback((newDandisetId: string) => {
-    updateUrl(newDandisetId);
-  }, []);
+    updateUrl(newDandisetId, dandiInstance);
+  }, [dandiInstance]);
 
   const handleChangeDandiset = useCallback(() => {
     setVersionInfo(null);
@@ -345,7 +362,7 @@ function AppContent() {
             <InfoIcon />
           </IconButton>
           <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <InstanceSelector />
+            <InstanceSelector locked />
             <IconButton
               color="inherit"
               component="a"

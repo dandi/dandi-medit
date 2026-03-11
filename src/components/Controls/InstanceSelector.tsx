@@ -1,8 +1,12 @@
-import { Select, MenuItem, FormControl, type SelectChangeEvent } from '@mui/material';
+import { Select, MenuItem, FormControl, Typography, type SelectChangeEvent } from '@mui/material';
 import { DANDI_INSTANCES } from '../../utils/dandiInstances';
 import { useMetadataContext } from '../../context/MetadataContext';
 
-export function InstanceSelector() {
+interface InstanceSelectorProps {
+  locked?: boolean;
+}
+
+export function InstanceSelector({ locked = false }: InstanceSelectorProps) {
   const { dandiInstance, setDandiInstance } = useMetadataContext();
 
   const handleChange = (event: SelectChangeEvent<string>) => {
@@ -11,6 +15,25 @@ export function InstanceSelector() {
       setDandiInstance(selected);
     }
   };
+
+  if (locked) {
+    return (
+      <Typography
+        sx={{
+          color: 'inherit',
+          fontSize: '0.8rem',
+          opacity: 0.85,
+          px: 1,
+          py: 0.5,
+          border: '1px solid rgba(255,255,255,0.3)',
+          borderRadius: 1,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {dandiInstance.name}
+      </Typography>
+    );
+  }
 
   return (
     <FormControl size="small" sx={{ minWidth: 160 }}>
