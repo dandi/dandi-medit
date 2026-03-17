@@ -85,6 +85,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
     fetchDandisets({
       apiKey,
       onlyMine,
+      hideEmpty,
       order: sortOrder,
       page,
       pageSize: PAGE_SIZE,
@@ -103,12 +104,12 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
       .finally(() => {
         setIsLoadingDandisets(false);
       });
-  }, [apiKey, dandiApiBase, sortOrder, onlyMine, page, setError]);
+  }, [apiKey, dandiApiBase, sortOrder, onlyMine, hideEmpty, page, setError]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
     setPage(1);
-  }, [sortOrder, onlyMine]);
+  }, [sortOrder, onlyMine, hideEmpty]);
 
   const handleSaveApiKey = async () => {
     const trimmed = localApiKey.trim();
@@ -174,10 +175,6 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
       day: 'numeric',
     });
   };
-
-  const filteredDandisets = hideEmpty
-    ? dandisets.filter((d) => d.draft_version.size > 0)
-    : dandisets;
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -330,7 +327,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress />
           </Box>
-        ) : filteredDandisets.length === 0 ? (
+        ) : dandisets.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
             No dandisets found.
           </Typography>
@@ -369,7 +366,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredDandisets.map((dandiset) => (
+                {dandisets.map((dandiset) => (
                   <TableRow
                     key={dandiset.identifier}
                     hover

@@ -26,12 +26,13 @@ export interface DandisetsPage {
 export async function fetchDandisets(options: {
   apiKey?: string | null;
   onlyMine?: boolean;
+  hideEmpty?: boolean;
   order?: DandisetSortOrder;
   page?: number;
   pageSize?: number;
   dandiApiBase: string;
 }): Promise<DandisetsPage> {
-  const { apiKey, onlyMine = false, order = '-modified', page = 1, pageSize = 25, dandiApiBase } = options;
+  const { apiKey, onlyMine = false, hideEmpty = false, order = '-modified', page = 1, pageSize = 25, dandiApiBase } = options;
   const params = new URLSearchParams({
     order,
     page: String(page),
@@ -40,6 +41,9 @@ export async function fetchDandisets(options: {
   if (onlyMine) {
     params.set('user', 'me');
     params.set('embargoed', 'true');
+  }
+  if (hideEmpty) {
+    params.set('empty', 'false');
   }
 
   const headers: HeadersInit = {};
