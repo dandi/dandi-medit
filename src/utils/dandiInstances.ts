@@ -26,8 +26,13 @@ export const DEFAULT_INSTANCE = DANDI_INSTANCES[0];
 
 const SELECTED_INSTANCE_KEY = 'dandi-selected-instance-url';
 
+function normalizeApiUrl(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
 export function getInstanceByApiUrl(apiUrl: string): DandiInstance | undefined {
-  return DANDI_INSTANCES.find((i) => i.apiUrl === apiUrl);
+  const normalized = normalizeApiUrl(apiUrl);
+  return DANDI_INSTANCES.find((i) => normalizeApiUrl(i.apiUrl) === normalized);
 }
 
 export function getStoredInstance(): DandiInstance {
@@ -43,18 +48,37 @@ export function getStoredInstance(): DandiInstance {
   return DEFAULT_INSTANCE;
 }
 
-export function getInitialInstance(): DandiInstance {
+export interface InitialInstanceResult {
+  instance: DandiInstance;
+  urlInstanceParam: string | null;
+  urlInstanceError: string | null;
+}
+
+export function getInitialInstanceWithStatus(): InitialInstanceResult {
   try {
     const params = new URLSearchParams(window.location.search);
     const instanceUrl = params.get('instance');
     if (instanceUrl) {
       const found = getInstanceByApiUrl(instanceUrl);
-      if (found) return found;
+      if (found) {
+        return { instance: found, urlInstanceParam: instanceUrl, urlInstanceError: null };
+      }
+      // URL has an instance param that doesn't match any known instance
+      const knownNames = DANDI_INSTANCES.map((i) => `${i.name} (${i.apiUrl})`).join(', ');
+      return {
+        instance: getStoredInstance(),
+        urlInstanceParam: instanceUrl,
+        urlInstanceError: `The API instance "${instanceUrl}" from the URL is not recognized. Known instances: ${knownNames}`,
+      };
     }
   } catch {
     // ignore
   }
-  return getStoredInstance();
+  return { instance: getStoredInstance(), urlInstanceParam: null, urlInstanceError: null };
+}
+
+export function getInitialInstance(): DandiInstance {
+  return getInitialInstanceWithStatus().instance;
 }
 
 export function setStoredInstance(instance: DandiInstance): void {

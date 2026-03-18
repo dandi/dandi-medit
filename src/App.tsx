@@ -117,11 +117,13 @@ function AppContent() {
     dandiApiBase,
     dandiInstance,
     setOriginalMetadata,
-    setModifiedMetadata
+    setModifiedMetadata,
+    urlInstanceError,
   } = useMetadataContext();
 
   const [aboutDialogOpen, setAboutDialogOpen] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
+  const [instanceError, setInstanceError] = useState<string | null>(urlInstanceError);
   const [isReviewMode, setIsReviewMode] = useState(() => getUrlParams().isReviewMode);
 
   // Track if we have a pending proposal to apply after metadata loads
@@ -188,22 +190,29 @@ function AppContent() {
 
   // Load dandiset from URL on initial render
   useEffect(() => {
+    // If the URL had an unrecognized instance, don't try to load the dandiset
+    if (urlInstanceError) {
+      // Clean dandiset from URL since we can't load it with an unknown instance
+      updateUrl(null);
+      return;
+    }
+
     const { dandisetId: urlDandisetId } = getUrlParams();
     const proposal = parseProposalFromUrl();
-    
+
     console.log('[Proposal] Initial URL parsing:', {
       urlDandisetId,
       hasProposal: !!proposal,
       proposal: proposal ? { hash: proposal.h, delta: proposal.d } : null
     });
-    
+
     if (urlDandisetId && !versionInfo) {
       // Store proposal to apply after loading
       if (proposal) {
         console.log('[Proposal] Storing proposal for later application');
         pendingProposalRef.current = proposal;
       }
-      
+
       // Auto-load the dandiset from URL parameters (always use draft)
       const loadFromUrl = async () => {
         // Set dandiset ID immediately so main layout shows with loading spinner
@@ -215,7 +224,13 @@ function AppContent() {
           setVersionInfo(info);
           setVersion('draft');
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Failed to load dandiset from URL');
+          const message = err instanceof Error ? err.message : 'Failed to load dandiset from URL';
+          setError(message);
+          setInstanceError(
+            `Could not load dandiset ${urlDandisetId} from ${dandiInstance.name} (${dandiApiBase}). ` +
+            `The dandiset may not exist on this instance, or you may not have access. ` +
+            `Error: ${message}`
+          );
           // Clear dandiset ID and URL params on error
           setDandisetId('');
           updateUrl(null);
@@ -305,6 +320,23 @@ function AppContent() {
           open={aboutDialogOpen}
           onClose={() => setAboutDialogOpen(false)}
         />
+
+        {/* Instance Error Snackbar */}
+        <Snackbar
+          open={!!instanceError}
+          autoHideDuration={20000}
+          onClose={() => setInstanceError(null)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={() => setInstanceError(null)}
+            severity="error"
+            variant="filled"
+            sx={{ width: '100%', maxWidth: 600 }}
+          >
+            {instanceError}
+          </Alert>
+        </Snackbar>
       </Box>
     );
   }

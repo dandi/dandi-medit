@@ -17,7 +17,7 @@ import {
 } from '../utils/dandiApiKeyStorage';
 import {
   type DandiInstance,
-  getInitialInstance,
+  getInitialInstanceWithStatus,
   setStoredInstance,
 } from '../utils/dandiInstances';
 
@@ -47,6 +47,9 @@ interface MetadataContextType {
   setDandiInstance: (instance: DandiInstance) => void;
   dandiApiBase: string;
 
+  // URL instance mismatch info (set once on init)
+  urlInstanceError: string | null;
+
   // Get the current metadata with pending changes applied
   originalMetadata: DandisetMetadata | null;
   modifiedMetadata: DandisetMetadata | null;
@@ -70,11 +73,18 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [dandiInstance, setDandiInstanceState] = useState<DandiInstance>(() => getInitialInstance());
+  const [initialInstanceStatus] = useState(() => {
+    const status = getInitialInstanceWithStatus();
+    // If the URL specified a valid instance, persist it as the selected instance
+    if (status.urlInstanceParam && !status.urlInstanceError) {
+      setStoredInstance(status.instance);
+    }
+    return status;
+  });
+  const [dandiInstance, setDandiInstanceState] = useState<DandiInstance>(() => initialInstanceStatus.instance);
 
   const [apiKey, setApiKeyState] = useState<string | null>(() => {
-    const instance = getInitialInstance();
-    return getStoredDandiApiKey(instance.apiUrl);
+    return getStoredDandiApiKey(initialInstanceStatus.instance.apiUrl);
   });
 
   // Ref to track pending metadata for synchronous validation
@@ -194,6 +204,7 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
     dandiInstance,
     setDandiInstance,
     dandiApiBase: dandiInstance.apiUrl,
+    urlInstanceError: initialInstanceStatus.urlInstanceError,
     originalMetadata,
     modifiedMetadata: modifiedMetadata || originalMetadata,
     setOriginalMetadata: setOriginalMetadata1,
