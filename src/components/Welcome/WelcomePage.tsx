@@ -198,7 +198,6 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
           width: '100%',
           display: 'flex',
           flexDirection: 'column',
-          maxHeight: '100%',
         }}
       >
         {/* Header */}
@@ -332,7 +331,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
             No dandisets found.
           </Typography>
         ) : (
-          <TableContainer sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+          <TableContainer>
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
@@ -393,7 +392,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
                     </TableCell>
                     <TableCell>
                       <Typography variant="caption" color="text.secondary" noWrap>
-                        {formatDate(dandiset.draft_version.modified)}
+                        {formatDate(dandiset.modified)}
                       </Typography>
                     </TableCell>
                     <TableCell>
