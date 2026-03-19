@@ -66,7 +66,7 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
     setCommitError(null);
 
     try {
-      // Commit the changes via the proxy
+      // Commit the changes directly to the DANDI API
       await commitMetadataChanges(dandisetId, version, modifiedMetadata, apiKey, dandiApiBase);
 
       // Success! Clear pending changes

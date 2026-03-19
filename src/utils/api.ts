@@ -87,53 +87,44 @@ export async function fetchDandisetVersionInfo(
   return data as DandisetVersionInfo;
 }
 
-// Proxy server URL - configure based on environment
-// const PROXY_URL = import.meta.env.VITE_PROXY_URL || 'http://localhost:8787';
-const PROXY_URL = import.meta.env.VITE_PROXY_URL || 'https://dandiset-metadata-proxy.figurl.workers.dev';
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function commitMetadataChanges(
   dandisetId: string,
   version: string,
-  metadata: unknown,
+  metadata: any,
   apiKey: string,
-  instanceUrl?: string
+  dandiApiBase?: string
 ): Promise<void> {
-  const url = `${PROXY_URL}/commit`;
+  const base = dandiApiBase || DEFAULT_INSTANCE.apiUrl;
+  const url = `${base}/dandisets/${dandisetId}/versions/${version}/`;
 
   const response = await fetch(url, {
-    method: 'POST',
+    method: 'PUT',
     headers: {
+      'Authorization': `token ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      dandisetId,
-      version,
       metadata,
-      apiKey,
-      instanceUrl,
+      name: metadata.name,
     }),
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
 
-    if (errorData.validationErrors) {
-      throw new Error(`Metadata validation failed: ${errorData.message || 'Invalid metadata'}`);
-    }
-
     if (response.status === 401 || response.status === 403) {
       throw new Error('Authentication failed. Please check your API key.');
     }
 
     throw new Error(
+      errorData.detail ||
       errorData.message ||
-      errorData.error ||
       `Failed to commit metadata: ${response.statusText}`
     );
   }
 
-  const data = await response.json();
-  console.log('Metadata committed successfully', data);
+  console.log('Metadata committed successfully');
 }
 
 export interface DandiUser {
