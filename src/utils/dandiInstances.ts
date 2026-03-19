@@ -20,6 +20,11 @@ export const DANDI_INSTANCES: DandiInstance[] = [
     apiUrl: 'https://api-dandi.emberarchive.org/api',
     webUrl: 'https://dandi.emberarchive.org',
   },
+  {
+    name: 'EMBER Sandbox',
+    apiUrl: 'https://api-dandi.sandbox.emberarchive.org/api',
+    webUrl: 'https://dandi.sandbox.emberarchive.org',
+  },
 ];
 
 export const DEFAULT_INSTANCE = DANDI_INSTANCES[0];
