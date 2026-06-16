@@ -6,6 +6,7 @@ import { DEFAULT_MODEL, AVAILABLE_MODELS } from "./availableModels";
 import { proposeMetadataChangeTool } from "./tools/proposeMetadataChange";
 import { fetchUrlTool } from "./tools/fetchUrl";
 import { lookupOntologyTermTool } from "./tools/lookupOntologyTerm";
+import { importContributorsFromDoiTool } from "./tools/importContributorsFromDoi";
 import { fetchSchema } from "../schemas/schemaService";
 import { parseSuggestions } from "./parseSuggestions";
 import { getStoredOpenRouterApiKey } from "./apiKeyStorage";
@@ -176,7 +177,7 @@ const useChat = (options: UseChatOptions) => {
     loadSchema();
   }, [dandisetSchema]);
 
-  const tools: QPTool[] = useMemo(() => [proposeMetadataChangeTool, fetchUrlTool, lookupOntologyTermTool], []);
+  const tools: QPTool[] = useMemo(() => [proposeMetadataChangeTool, fetchUrlTool, lookupOntologyTermTool, importContributorsFromDoiTool], []);
 
   const toolExecutionContext: ToolExecutionContext = useMemo(
     () => ({
@@ -218,14 +219,12 @@ Your role is to help users understand and improve their dandiset metadata by:
 - If multiple matches are found, present the options to the user and let them choose the most appropriate term.
 
 **CONTRIBUTOR INFORMATION FROM PUBLICATIONS:**
-- When adding contributors from a paper with a DOI, use the OpenAlex API to get detailed author information.
-- Fetch from: https://api.openalex.org/works/doi:{DOI} (e.g., https://api.openalex.org/works/doi:10.1016/j.neuron.2016.12.011)
-- The OpenAlex response includes authorships with: author name, ORCID identifier, and institutional affiliations with ROR IDs.
-- Use this data to populate contributor fields including: name, identifier (ORCID URL), and affiliation (with ROR identifier).
-- ORCID format: https://orcid.org/0000-0000-0000-0000
-- ROR format: https://ror.org/XXXXXXX
-- To get funding/award information, use https://api.openalex.org/works/doi:[doi]?select=id,title,funders,awards
-- **IMPORTANT - VERIFY AUTHOR ORDER**: When adding contributors from a publication, ensure the order of authors matches the order listed in the paper. The OpenAlex API returns authors in publication order — preserve this order when adding contributors. After proposing contributor additions, verify that the author order in your proposal matches the order from the OpenAlex response. If the dandiset already has contributors listed in a different order, flag the discrepancy to the user.
+- When adding contributors from a paper with a DOI, use the import_contributors_from_doi tool. This tool deterministically converts OpenAlex authorship data into properly formatted dandiset contributor objects, guaranteeing correct author order, name formatting, ORCIDs, and affiliations.
+- Do NOT manually parse OpenAlex authorship JSON — always use import_contributors_from_doi instead.
+- After calling import_contributors_from_doi, use propose_metadata_change to append the returned contributors to the contributor array.
+- If the dandiset already has contributors, compare the imported list with existing ones and ask the user how to reconcile differences.
+- The first and last authors may need additional roles (e.g., dcite:ContactPerson for corresponding author — ask the user).
+- To get funding/award information, use fetch_url with https://api.openalex.org/works/doi:[doi]?select=id,title,funders,awards
 
 **SUGGESTED PROMPTS:**
 - You can include suggested follow-up prompts for the user in any of your responses

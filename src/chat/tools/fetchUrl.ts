@@ -124,11 +124,25 @@ export const fetchUrlTool: QPTool = {
         (domain) => hostname === domain || hostname.endsWith("." + domain)
       );
 
-      // For OpenAlex works API, automatically add select parameter to reduce response size
+      // For OpenAlex works API, automatically constrain the response size.
+      // A multi-result search (/works?search=...) returns 25 works each with a
+      // full author list, which can easily exceed the model provider's per-message
+      // limit. Distinguish a list query from a single-work lookup (/works/<id>).
       let finalUrl = url;
-      if (hostname === "api.openalex.org" && parsedUrl.pathname.startsWith("/works") && !parsedUrl.search.includes("select=")) {
+      if (hostname === "api.openalex.org" && parsedUrl.pathname.replace(/\/$/, "") === "/works") {
+        const params = new URLSearchParams(parsedUrl.search);
+        if (!params.has("select")) {
+          // Lean fields for discovery — NO authorships (the bulky field). The model
+          // should follow up with import_contributors_from_doi once it has a DOI.
+          params.set("select", "id,doi,title,display_name,publication_year");
+        }
+        if (!params.has("per_page") && !params.has("per-page")) {
+          params.set("per_page", "3");
+        }
+        finalUrl = `${parsedUrl.origin}${parsedUrl.pathname}?${params.toString()}`;
+      } else if (hostname === "api.openalex.org" && parsedUrl.pathname.startsWith("/works/") && !parsedUrl.search.includes("select=")) {
+        // Single-work lookup: full metadata is fine (one work, bounded size).
         const separator = parsedUrl.search ? "&" : "?";
-        // Select only fields useful for metadata extraction
         finalUrl = `${url}${separator}select=id,doi,title,display_name,authorships,publication_year,publication_date,funders,keywords`;
       }
 
@@ -167,9 +181,11 @@ export const fetchUrlTool: QPTool = {
         content = extractTextFromHtml(html);
       }
 
-      // Truncate if too long (to avoid overwhelming the context)
-      // 25000 chars accommodates most OpenAlex responses with full authorship data
-      const maxLength = 250000;
+      // Truncate if too long (to avoid overwhelming the context).
+      // Must stay well under the model provider's hard per-message limit
+      // (OpenRouter rejects messages over 100000 chars); leave headroom for the
+      // JSON wrapper this result is embedded in.
+      const maxLength = 75000;
       const truncated = content.length > maxLength;
       const finalContent = truncated
         ? content.substring(0, maxLength) + "\n\n[Content truncated due to length...]"

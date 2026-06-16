@@ -8,6 +8,28 @@ import { parseCompletionStream } from "./parseCompletionStream";
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 10000; // 10 seconds (rate limit is 10 req/min)
 
+// Hard cap on the size of a single tool-result message. OpenRouter rejects any
+// message over 100000 characters, and once an oversized message is in the
+// conversation history every subsequent request fails identically — permanently
+// bricking the chat. Individual tools should keep their output small, but this is
+// a last line of defense that applies to ALL tools (current and future).
+const MAX_TOOL_RESULT_CHARS = 90000;
+
+/**
+ * Clamp a tool-result string to a size the model provider will accept, replacing
+ * the overflow with a notice the model can understand and act on.
+ */
+const clampToolResult = (content: string): string => {
+  if (content.length <= MAX_TOOL_RESULT_CHARS) return content;
+  const keep = MAX_TOOL_RESULT_CHARS - 500; // headroom for the notice
+  return (
+    content.substring(0, keep) +
+    `\n\n[Tool result truncated: it was ${content.length} characters, which exceeds the ` +
+    `${MAX_TOOL_RESULT_CHARS}-character limit for a single message. Narrow the request ` +
+    `(e.g. fewer results, a more specific query, or a dedicated tool) to get complete data.]`
+  );
+};
+
 /**
  * Sleep for a given number of milliseconds
  */
@@ -211,7 +233,7 @@ const processCompletion = async (
       }
       ret.push({
         role: "tool",
-        content: result,
+        content: clampToolResult(result),
         tool_call_id: toolCallId,
       });
       onPartialResponse([...ret]);
