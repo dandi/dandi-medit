@@ -70,6 +70,14 @@ export const AVAILABLE_MODELS = [
       prompt: 0.15,
       completion: 0.6,
     },
+  },
+  {
+    model: "deepseek/deepseek-v4-flash-0731",
+    label: "deepseek-v4-flash-0731",
+    cost: {
+      prompt: 0.09,
+      completion: 0.18,
+    },
   }
 ];
 
@@ -80,7 +88,8 @@ export const CHEAP_MODELS = [
   "openai/gpt-4o-mini",
   "google/gemini-2.5-flash",
   "moonshotai/kimi-k2-thinking",
-  "google/gemini-3-flash-preview"
+  "google/gemini-3-flash-preview",
+  "deepseek/deepseek-v4-flash-0731"
 ];
 
-export const DEFAULT_MODEL = "google/gemini-3-flash-preview";
+export const DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731";
