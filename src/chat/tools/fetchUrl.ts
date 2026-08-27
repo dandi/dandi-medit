@@ -167,16 +167,13 @@ export const fetchUrlTool: QPTool = {
         content = extractTextFromHtml(html);
       }
 
-      // Truncate if too long (to avoid overwhelming the context)
-      // 25000 chars accommodates most OpenAlex responses with full authorship data
-      const maxLength = 250000;
-      const truncated = content.length > maxLength;
-      const finalContent = truncated
-        ? content.substring(0, maxLength) + "\n\n[Content truncated due to length...]"
-        : content;
+      // OpenRouter rejects messages over 100000 characters, and the JSON wrapper
+      // below adds indentation and escaping overhead, so cap the final serialized
+      // result well below that limit rather than the raw content length.
+      const maxResultLength = 80000;
 
-      return {
-        result: JSON.stringify(
+      const buildResult = (body: unknown, truncated: boolean) =>
+        JSON.stringify(
           {
             success: true,
             url,
@@ -185,12 +182,26 @@ export const fetchUrlTool: QPTool = {
             truncated,
             // For JSON responses, include the parsed object directly to avoid double-stringification
             // For HTML/text responses, include the extracted text
-            content: jsonContent && !truncated ? jsonContent : finalContent,
+            content: body,
           },
           null,
           2
-        ),
-      };
+        );
+
+      let result = buildResult(jsonContent ?? content, false);
+      if (result.length > maxResultLength) {
+        const truncationNotice = "\n\n[Content truncated due to length...]";
+        const overhead = buildResult(truncationNotice, true).length;
+        let keep = Math.max(0, maxResultLength - overhead);
+        result = buildResult(content.substring(0, keep) + truncationNotice, true);
+        // JSON escaping can expand the content, so shave further until it fits
+        while (result.length > maxResultLength && keep > 0) {
+          keep = Math.floor(keep * 0.9);
+          result = buildResult(content.substring(0, keep) + truncationNotice, true);
+        }
+      }
+
+      return { result };
     } catch (error) {
       return {
         result: JSON.stringify({
