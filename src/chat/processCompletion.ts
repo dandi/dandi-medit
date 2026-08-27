@@ -209,6 +209,17 @@ const processCompletion = async (
       for (const m of newMessages || []) {
         ret.push(m);
       }
+      // Safety net: OpenRouter rejects individual messages over 100000 characters,
+      // so truncate any oversized tool result rather than failing the whole request
+      const maxToolResultLength = 90000;
+      if (result.length > maxToolResultLength) {
+        console.warn(
+          `Tool result from "${functionName}" is ${result.length} characters; truncating to ${maxToolResultLength}`,
+        );
+        result =
+          result.substring(0, maxToolResultLength) +
+          "\n\n[Tool result truncated due to length...]";
+      }
       ret.push({
         role: "tool",
         content: result,
