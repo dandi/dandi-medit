@@ -175,11 +175,34 @@ const processCompletion = async (
       const toolCallId = toolCall.id;
       const functionName = toolCall.function.name;
       const functionArgs = toolCall.function.arguments;
-      const functionArgsParsed = JSON.parse(functionArgs || "{}");
+
+      // Streamed tool call arguments can arrive incomplete (for example when the
+      // completion hits a token limit mid call, leaving something like "{"), so
+      // return an error result the model can react to rather than failing the
+      // whole request
+      let functionArgsParsed: unknown;
+      try {
+        functionArgsParsed = JSON.parse(functionArgs || "{}");
+      } catch {
+        console.warn(`Invalid JSON arguments for tool "${functionName}":`, functionArgs);
+        ret.push({
+          role: "tool",
+          content: `Error: the arguments for tool "${functionName}" were not valid JSON. The response may have been cut off before the tool call was complete. Please retry, splitting the request into smaller tool calls if it was large.`,
+          tool_call_id: toolCallId,
+        });
+        onPartialResponse([...ret]);
+        continue;
+      }
 
       const tool = tools.find((t) => t.toolFunction.name === functionName);
       if (!tool) {
-        throw new Error("Tool not found: " + functionName);
+        ret.push({
+          role: "tool",
+          content: `Error: tool "${functionName}" does not exist. Please use one of the available tools.`,
+          tool_call_id: toolCallId,
+        });
+        onPartialResponse([...ret]);
+        continue;
       }
 
       console.info(`Executing tool: ${functionName} with args:`, functionArgsParsed);
