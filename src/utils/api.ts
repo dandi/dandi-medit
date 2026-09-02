@@ -1,4 +1,4 @@
-import type { DandisetVersionInfo } from '../types/dandiset';
+import type { DandisetMetadata, DandisetVersionInfo } from '../types/dandiset';
 import { DEFAULT_INSTANCE } from './dandiInstances';
 
 export interface OwnedDandiset {
@@ -91,11 +91,10 @@ export async function fetchDandisetVersionInfo(
   return data as DandisetVersionInfo;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function commitMetadataChanges(
   dandisetId: string,
   version: string,
-  metadata: any,
+  metadata: DandisetMetadata,
   apiKey: string,
   dandiApiBase?: string
 ): Promise<void> {

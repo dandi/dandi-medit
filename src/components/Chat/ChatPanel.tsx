@@ -20,7 +20,7 @@ import StopIcon from "@mui/icons-material/Stop";
 import DownloadIcon from "@mui/icons-material/Download";
 import CompressIcon from "@mui/icons-material/Compress";
 import CloseIcon from "@mui/icons-material/Close";
-import { useMetadataContext } from "../../context/MetadataContext";
+import { useMetadataContext } from "../../context/useMetadataContext";
 import useChat from "../../chat/useChat";
 import { CHEAP_MODELS } from "../../chat/availableModels";
 import { getStoredOpenRouterApiKey } from "../../chat/apiKeyStorage";
