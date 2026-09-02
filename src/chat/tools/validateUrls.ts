@@ -20,9 +20,20 @@ export interface ValidationResult {
 }
 
 /**
+ * Strip an orcid.org prefix from an ORCID value, leaving the bare identifier
+ * that the dandiset schema requires (for example "0000-0000-0000-0000").
+ */
+export function normalizeOrcid(value: string): string {
+  return value.trim().replace(/^(https?:\/\/)?(www\.)?orcid\.org\//i, "").trim();
+}
+
+/**
  * Validate that an ORCID identifier resolves to a real person
  */
 export async function validateOrcid(orcid: string): Promise<ValidationResult> {
+  // Accept the URL form by reducing it to the bare identifier first
+  orcid = normalizeOrcid(orcid);
+
   // First check format
   if (!ORCID_PATTERN.test(orcid)) {
     return {
