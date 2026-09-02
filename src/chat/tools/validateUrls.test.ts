@@ -21,6 +21,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -30,7 +31,6 @@ describe('validateOrcid', () => {
     '0000-0002-1825-00977',
     '0000-0002-1825-009x',
     '000000021825009X',
-    'https://orcid.org/0000-0002-1825-0097',
     'abcd-0002-1825-0097',
     '',
   ])('rejects the malformed ORCID %j without a network call', async (orcid) => {
@@ -38,6 +38,16 @@ describe('validateOrcid', () => {
     expect(result.isValid).toBe(false);
     expect(result.error).toMatch(/Invalid ORCID format/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('normalizes an ORCID URL to the bare identifier before checking the API', async () => {
+    for (const orcid of ['https://orcid.org/0000-0002-1825-0097', 'orcid.org/0000-0002-1825-0097']) {
+      fetchMock.mockClear();
+      const result = await validateOrcid(orcid);
+      expect(result.isValid).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe('https://pub.orcid.org/v3.0/0000-0002-1825-0097');
+    }
   });
 
   it('accepts a well-formed ORCID ending in a digit or X and checks it against the ORCID API', async () => {
@@ -123,13 +133,29 @@ describe('validateUrl', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('checks other URLs through the CORS proxy', async () => {
+  it('accepts other URLs without a network call when no CORS proxy is configured', async () => {
+    vi.stubEnv('VITE_CORS_PROXY_URL', '');
+    const result = await validateUrl('https://example.org/page');
+    expect(result.isValid).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('checks other URLs through the configured CORS proxy', async () => {
+    vi.stubEnv('VITE_CORS_PROXY_URL', 'https://proxy.example.org/?{url}');
     const result = await validateUrl('https://example.org/page');
     expect(result.isValid).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      `https://corsproxy.io/?${encodeURIComponent('https://example.org/page')}`,
+      `https://proxy.example.org/?${encodeURIComponent('https://example.org/page')}`,
     );
+  });
+
+  it('reports a 404 from the configured CORS proxy', async () => {
+    vi.stubEnv('VITE_CORS_PROXY_URL', 'https://proxy.example.org/?{url}');
+    fetchMock.mockResolvedValue(mockResponse(404));
+    const result = await validateUrl('https://example.org/missing');
+    expect(result.isValid).toBe(false);
+    expect(result.error).toMatch(/404/);
   });
 });
 
