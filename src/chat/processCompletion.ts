@@ -162,8 +162,12 @@ const processCompletion = async (
       model: chat.model,
       usage: {
         promptTokens,
-        completionTokens: 0,
-        estimatedCost: 0,
+        completionTokens,
+        estimatedCost: getEstimatedCostForModel(
+          chat.model,
+          promptTokens,
+          completionTokens,
+        ),
       },
     });
     onPartialResponse([...ret]);
