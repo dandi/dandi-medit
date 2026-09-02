@@ -7,7 +7,7 @@ import {
   normalizePath,
   type MetadataOperationType
 } from '../core/metadataOperations';
-import { formatValidationErrors, validateFullMetadata } from '../schemas/validateMetadata';
+import { findNewValidationErrors, formatValidationErrors, validateFullMetadata } from '../schemas/validateMetadata';
 import type { DandisetMetadata, DandisetVersionInfo } from '../types/dandiset';
 import {
   getStoredDandiApiKey,
@@ -130,24 +130,18 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
 
     const newMetadata = result.data as DandisetMetadata;
 
-    // Only validate if the current metadata (before this change) was valid
-    // If it's already invalid, allow changes without validation
-    const currentIsValid = validateFullMetadata(currentMetadata).valid;
-
-    if (currentIsValid) {
-      // Validate against schema
-      const validationResult = validateFullMetadata(newMetadata);
-      if (!validationResult.valid) {
-        // Skip validation if schema is not loaded (indicated by schema-loading keyword)
-        const isSchemaNotLoaded = validationResult.errors.some(e => e.keyword === 'schema-loading');
-        if (!isSchemaNotLoaded) {
-          return {
-            success: false,
-            error: formatValidationErrors(validationResult.errors).join('\n')
-          };
-        }
-        // Schema not loaded yet, allow the change (validation will happen on commit)
-      }
+    // Reject the change only if it introduces schema errors that were not
+    // already present, so dandisets with existing errors can still be edited
+    // without letting the assistant add new ones.
+    const newErrors = findNewValidationErrors(
+      validateFullMetadata(currentMetadata).errors,
+      validateFullMetadata(newMetadata).errors,
+    );
+    if (newErrors.length > 0) {
+      return {
+        success: false,
+        error: formatValidationErrors(newErrors).join('\n')
+      };
     }
 
     modifiedMetadataRef.current = newMetadata;
