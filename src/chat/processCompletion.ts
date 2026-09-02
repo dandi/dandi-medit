@@ -7,6 +7,10 @@ import { COMPLETION_URL, buildCompletionHeaders } from "./completionApi";
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 10000; // 10 seconds (rate limit is 10 req/min)
 
+// Maximum number of consecutive tool call rounds allowed for a single user
+// message, so a model stuck in a propose/reject/retry loop cannot run forever
+const MAX_TOOL_CALL_ROUNDS = 10;
+
 /**
  * Sleep for a given number of milliseconds
  */
@@ -26,6 +30,7 @@ const processCompletion = async (
   initialSystemMessage: string,
   toolExecutionContext: ToolExecutionContext,
   signal?: AbortSignal,
+  round: number = 0,
 ): Promise<ChatMessage[]> => {
   const request: CompletionRequest = {
     model: chat.model,
@@ -147,6 +152,33 @@ const processCompletion = async (
   const ret: ChatMessage[] = [];
 
   if (toolCalls) {
+    if (round >= MAX_TOOL_CALL_ROUNDS) {
+      // Drop the tool calls rather than executing them. The assistant message is
+      // kept for any text it carried, but without tool_calls, because an
+      // assistant message with tool_calls and no matching tool results is
+      // rejected by OpenAI-style APIs on the next turn.
+      if (assistantContent) {
+        ret.push({
+          role: "assistant",
+          content: assistantContent,
+          model: chat.model,
+          usage: {
+            promptTokens,
+            completionTokens,
+            estimatedCost: getEstimatedCostForModel(chat.model, promptTokens, completionTokens),
+          },
+        });
+      }
+      ret.push({
+        role: "assistant",
+        content: `Reached the limit of ${MAX_TOOL_CALL_ROUNDS} tool call rounds for this message. Send another message if you would like me to continue.`,
+        model: chat.model,
+        usage: { promptTokens: 0, completionTokens: 0, estimatedCost: 0 },
+      });
+      onPartialResponse([...ret]);
+      return ret;
+    }
+
     ret.push({
       role: "assistant",
       content: assistantContent,
@@ -261,6 +293,7 @@ const processCompletion = async (
       initialSystemMessage,
       toolExecutionContext,
       signal,
+      round + 1,
     );
 
     return [...ret, ...x];
