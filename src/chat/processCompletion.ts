@@ -95,6 +95,7 @@ const processCompletion = async (
             content: `⏳ Rate limit reached. Waiting ${Math.round(delayMs / 1000)} seconds before retrying (attempt ${attempt + 1}/${MAX_RETRIES})...`,
             model: chat.model,
             usage: { promptTokens: 0, completionTokens: 0, estimatedCost: 0 },
+            transient: true,
           },
         ]);
 
