@@ -23,6 +23,7 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
     setIsLoading,
     originalMetadata,
     modifiedMetadata,
+    hasChanges,
     clearModifications,
     dandiApiBase,
   } = useMetadataContext();
@@ -34,7 +35,6 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
   const [copyError, setCopyError] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState<boolean | null>(null);
 
-  const hasChanges = JSON.stringify(originalMetadata) !== JSON.stringify(modifiedMetadata);
   const canCommit = hasChanges && !!apiKey && !!versionInfo && isOwner === true;
 
   // Check if the user is an owner of the dandiset
