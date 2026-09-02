@@ -5,6 +5,7 @@ import {
   applyOperation,
   getValueAtPath,
   normalizePath,
+  removeValueAtPath,
   type MetadataOperationType
 } from '../core/metadataOperations';
 import { formatValidationErrors, validateFullMetadata } from '../schemas/validateMetadata';
@@ -166,7 +167,11 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
     if (!originalMetadata || !currentMetadata) return;
 
     const originalValue = getValueAtPath(originalMetadata, fieldKey);
-    const result = applyOperation(currentMetadata, 'set', fieldKey, originalValue);
+    // A field absent from the original metadata was added by the user, so reverting
+    // it means removing the property rather than setting it to undefined.
+    const result = originalValue === undefined
+      ? removeValueAtPath(currentMetadata, fieldKey)
+      : applyOperation(currentMetadata, 'set', fieldKey, originalValue);
 
     if (result.success) {
       const newMetadata = result.data as DandisetMetadata;
