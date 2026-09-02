@@ -10,6 +10,7 @@ import {
   Tooltip,
   Button,
   TextField,
+  Fab,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
@@ -20,6 +21,7 @@ import StopIcon from "@mui/icons-material/Stop";
 import DownloadIcon from "@mui/icons-material/Download";
 import CompressIcon from "@mui/icons-material/Compress";
 import CloseIcon from "@mui/icons-material/Close";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { useMetadataContext } from "../../context/MetadataContext";
 import useChat from "../../chat/useChat";
 import { CHEAP_MODELS } from "../../chat/availableModels";
@@ -29,6 +31,10 @@ import MessageItem from "./MessageItem";
 import ChatSettingsDialog from "./ChatSettingsDialog";
 import SuggestedPrompts from "./SuggestedPrompts";
 import { CompressConfirmDialog } from "./CompressConfirmDialog";
+
+// How close to the bottom (in pixels) the conversation must be for new
+// messages to keep scrolling it down automatically.
+const NEAR_BOTTOM_THRESHOLD_PX = 80;
 
 export function ChatPanel() {
   const {
@@ -74,6 +80,8 @@ export function ChatPanel() {
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
   const [editingQueueText, setEditingQueueText] = useState<string>("");
   const conversationRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef<boolean>(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState<boolean>(false);
 
   // Get compression threshold from URL query parameter (for testing)
   const compressionThreshold = useMemo(() => {
@@ -99,18 +107,46 @@ export function ChatPanel() {
     return messages;
   }, [chat.messages, responding, partialResponse]);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Track whether the conversation is scrolled near the bottom, so that
+  // streamed updates do not yank the view away from what the user is reading.
+  const handleConversationScroll = useCallback(() => {
+    const el = conversationRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nearBottom = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD_PX;
+    isNearBottomRef.current = nearBottom;
+    setShowJumpToLatest(!nearBottom);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const el = conversationRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    isNearBottomRef.current = true;
+    setShowJumpToLatest(false);
+  }, []);
+
+  // Auto-scroll to bottom when new messages arrive, but only if the user was
+  // already at the bottom. Otherwise leave the scroll position alone; the
+  // jump to latest button gives them a way back down.
   useEffect(() => {
-    if (conversationRef.current) {
-      conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
+    const el = conversationRef.current;
+    if (el && isNearBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [allMessages]);
 
+  // A message the user just sent should always bring the view back down.
+  const stickToBottom = useCallback(() => {
+    isNearBottomRef.current = true;
+    setShowJumpToLatest(false);
+  }, []);
+
   const handleSubmit = useCallback(() => {
     if (newPrompt.trim() === "" || compressing || needsApiKey) return;
+    stickToBottom();
     submitUserMessage(newPrompt.trim());
     setNewPrompt("");
-  }, [newPrompt, submitUserMessage, compressing, needsApiKey]);
+  }, [newPrompt, submitUserMessage, compressing, needsApiKey, stickToBottom]);
 
   const handleNewChat = useCallback(() => {
     clearChat();
@@ -267,6 +303,7 @@ export function ChatPanel() {
       {/* Chat Messages Area */}
       <Box
         ref={conversationRef}
+        onScroll={handleConversationScroll}
         sx={{
           flex: 1,
           overflow: "auto",
@@ -426,6 +463,26 @@ export function ChatPanel() {
             )}
           </>
         )}
+
+        {/* Jump to latest: shown while the conversation is scrolled up */}
+        {showJumpToLatest && allMessages.length > 0 && (
+          <Fab
+            size="small"
+            color="primary"
+            aria-label="Jump to latest message"
+            onClick={scrollToBottom}
+            sx={{
+              position: "sticky",
+              bottom: 8,
+              alignSelf: "flex-end",
+              flexShrink: 0,
+              mt: 1,
+              zIndex: 1,
+            }}
+          >
+            <KeyboardArrowDownIcon />
+          </Fab>
+        )}
       </Box>
 
       {/* Error Display */}
@@ -504,6 +561,7 @@ export function ChatPanel() {
         <SuggestedPrompts
           suggestions={currentSuggestions}
           onSuggestionClick={(suggestion) => {
+            stickToBottom();
             submitUserMessage(suggestion);
           }}
           disabled={responding || compressing || loadingInitialSuggestions}
