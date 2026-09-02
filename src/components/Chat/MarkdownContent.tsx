@@ -4,9 +4,27 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkMath from "remark-math";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vs as highlightStyle } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+// remark-math marks math with `language-math` plus `math-inline` or
+// `math-display`, and rehype-katex reads those classes. The default schema
+// already keeps `language-*` on `code`, so we only need to add the two
+// positional classes. We sanitize before rehype-katex runs so that the schema
+// does not have to allow the MathML and inline styles that KaTeX emits.
+const mathClasses = ["math", "math-inline", "math-display"];
+
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [...(defaultSchema.attributes?.code || []), ["className", ...mathClasses]],
+    div: [...(defaultSchema.attributes?.div || []), ["className", ...mathClasses]],
+    span: [...(defaultSchema.attributes?.span || []), ["className", ...mathClasses]],
+  },
+};
 
 interface MarkdownContentProps {
   content: string;
@@ -18,10 +36,13 @@ const MarkdownContent: FunctionComponent<MarkdownContentProps> = ({
   doRehypeRaw,
 }) => {
   const rehypePlugins = useMemo(() => {
-    const plugins: any[] = [rehypeKatex];
+    const plugins: any[] = [];
     if (doRehypeRaw) {
-      plugins.push(rehypeRaw);
+      // rehype-raw turns the model's HTML into real elements, so it has to be
+      // followed by rehype-sanitize before anything is rendered.
+      plugins.push(rehypeRaw, [rehypeSanitize, sanitizeSchema]);
     }
+    plugins.push(rehypeKatex);
     return plugins;
   }, [doRehypeRaw]);
   
