@@ -2,9 +2,15 @@ import { QPTool, ToolExecutionContext } from "../types";
 
 /**
  * A tool that allows the AI to look up validated ontology terms from
- * UBERON (anatomy), DOID (diseases), Cognitive Atlas (cognitive concepts),
- * and other biomedical ontologies using the EBI Ontology Lookup Service (OLS)
- * and the Cognitive Atlas API.
+ * UBERON (anatomy), DOID (diseases), and other biomedical ontologies using the
+ * EBI Ontology Lookup Service (OLS), plus cognitive concepts from the
+ * Cognitive Atlas API.
+ *
+ * The Cognitive Atlas API does not send CORS headers, so requests to it are
+ * blocked by the browser. When that happens we report the failure in a
+ * sourceErrors field instead of silently returning an empty or OLS-only
+ * result set, so the model can tell the user that cognitive concept lookups
+ * are unavailable rather than retrying with different spellings.
  */
 
 // Ontology configurations with their OLS identifiers and DANDI schemaKey mappings
@@ -66,6 +72,14 @@ interface CognitiveAtlasResult {
   definition_text?: string;
 }
 
+const COGNITIVE_ATLAS_UNAVAILABLE_REASON =
+  "The Cognitive Atlas API does not send an Access-Control-Allow-Origin header, so the browser blocks the response.";
+
+interface SourceError {
+  source: string;
+  reason: string;
+}
+
 interface FormattedResult {
   identifier: string;
   name: string;
@@ -79,7 +93,7 @@ export const lookupOntologyTermTool: QPTool = {
   toolFunction: {
     name: "lookup_ontology_term",
     description:
-      "Look up validated ontology terms for brain regions, anatomical structures, diseases, disorders, or cognitive concepts. Returns standardized identifiers (URIs) that can be used with propose_metadata_change to add entries to the 'about' field.",
+      "Look up validated ontology terms for brain regions, anatomical structures, diseases, and disorders from the EBI Ontology Lookup Service. Cognitive concepts are looked up in the Cognitive Atlas, which is often unreachable from the browser; when it is, the result reports the failure in sourceErrors. Returns standardized identifiers (URIs) that can be used with propose_metadata_change to add entries to the 'about' field.",
     parameters: {
       type: "object",
       properties: {
@@ -92,7 +106,7 @@ export const lookupOntologyTermTool: QPTool = {
           type: "string",
           enum: ["anatomy", "disorder", "cognitive", "auto"],
           description:
-            "The category to search in: 'anatomy' for brain regions and anatomical structures (searches UBERON, CL), 'disorder' for diseases and conditions (searches DOID, HP, NCIT), 'cognitive' for cognitive concepts and mental processes (searches Cognitive Atlas), or 'auto' to search all and return the best matches. Default is 'auto'.",
+            "The category to search in: 'anatomy' for brain regions and anatomical structures (searches UBERON, CL), 'disorder' for diseases and conditions (searches DOID, HP, NCIT), 'cognitive' for cognitive concepts and mental processes (searches Cognitive Atlas, which may be unavailable from the browser), or 'auto' to search all and return the best matches. Default is 'auto'.",
         },
         maxResults: {
           type: "number",
@@ -140,6 +154,8 @@ export const lookupOntologyTermTool: QPTool = {
 
     try {
       const allResults: FormattedResult[] = [];
+      const sourceErrors: SourceError[] = [];
+      let cognitiveAtlasFailed = false;
 
       // Search OLS ontologies
       for (const ontology of olsOntologiesToSearch) {
@@ -162,6 +178,10 @@ export const lookupOntologyTermTool: QPTool = {
         } catch (error) {
           // Continue with other ontologies if one fails
           console.error(`Error searching ${ontology}:`, error);
+          sourceErrors.push({
+            source: ontology,
+            reason: error instanceof Error ? error.message : "Unknown error",
+          });
         }
       }
 
@@ -180,7 +200,29 @@ export const lookupOntologyTermTool: QPTool = {
           }
         } catch (error) {
           console.error("Error searching Cognitive Atlas:", error);
+          cognitiveAtlasFailed = true;
+          sourceErrors.push({
+            source: "CognitiveAtlas",
+            reason: `${COGNITIVE_ATLAS_UNAVAILABLE_REASON} (${
+              error instanceof Error ? error.message : "Unknown error"
+            })`,
+          });
         }
+      }
+
+      // If the user explicitly asked for cognitive concepts and the only source
+      // for them could not be reached, say so instead of reporting no matches.
+      if (cognitiveAtlasFailed && category === "cognitive") {
+        return {
+          result: JSON.stringify({
+            success: false,
+            term,
+            category,
+            error: `Cognitive Atlas cannot be reached from the browser, so cognitive concepts cannot be looked up right now. ${COGNITIVE_ATLAS_UNAVAILABLE_REASON} This is not a spelling problem and retrying with a different term will not help.`,
+            sourceErrors,
+            hint: "Tell the user that cognitive concept lookup is currently unavailable. Do not guess or fabricate a Cognitive Atlas identifier. Anatomy and disorder lookups still work.",
+          }),
+        };
       }
 
       if (allResults.length === 0) {
@@ -190,7 +232,12 @@ export const lookupOntologyTermTool: QPTool = {
             term,
             category,
             results: [],
-            message: `No matching terms found for "${term}". Try different search terms or check spelling.`,
+            ...(sourceErrors.length > 0 ? { sourceErrors } : {}),
+            message: `No matching terms found for "${term}" in the sources that could be searched.${
+              sourceErrors.length > 0
+                ? " Some sources could not be searched; see sourceErrors."
+                : " Try different search terms or check spelling."
+            }`,
           }),
         };
       }
@@ -222,6 +269,13 @@ export const lookupOntologyTermTool: QPTool = {
           resultsCount: limitedResults.length,
           totalFound: allResults.length,
           results: limitedResults,
+          ...(sourceErrors.length > 0 ? { sourceErrors } : {}),
+          ...(cognitiveAtlasFailed
+            ? {
+                warning:
+                  "Cognitive Atlas could not be searched, so no cognitive concepts are included in these results. Mention this to the user rather than implying the search was complete.",
+              }
+            : {}),
           usage: `To add a term to the dandiset metadata, use propose_metadata_change with:
 - path: "about.${"{next_index}"}" (use the next available index in the about array)
 - newValue: { "schemaKey": "${limitedResults[0]?.schemaKey}", "identifier": "${limitedResults[0]?.identifier}", "name": "${limitedResults[0]?.name}" }`,
@@ -251,7 +305,12 @@ export const lookupOntologyTermTool: QPTool = {
 **Ontologies searched:**
 - **Anatomy**: UBERON (anatomical structures), CL (cell types)
 - **Disorder**: DOID (diseases), HP (phenotypes), NCIT (NCI thesaurus)
-- **Cognitive**: Cognitive Atlas (cognitive concepts, mental processes, psychological constructs)
+- **Cognitive**: Cognitive Atlas (cognitive concepts, mental processes, psychological constructs). The Cognitive Atlas API does not send CORS headers, so from the browser this source is frequently unavailable.
+
+**When a source is unavailable:**
+- The result includes a \`sourceErrors\` field naming the source and the reason it could not be searched.
+- A \`cognitive\` search that cannot reach Cognitive Atlas returns success: false with an explanation. Tell the user that cognitive concept lookup is unavailable right now instead of retrying with different spellings, and never guess an identifier.
+- An \`auto\` search that cannot reach Cognitive Atlas still returns OLS results, but those cover anatomy and disorders only. Say so rather than implying the search was complete.
 
 **Examples:**
 - Look up a brain region: { "term": "hippocampus", "category": "anatomy" }
@@ -271,7 +330,9 @@ Each result includes:
 - name: Human-readable label
 - schemaKey: "Anatomy", "Disorder", or "GenericType" (determines the type for the about field)
 - ontology: Source ontology (UBERON, DOID, CognitiveAtlas, etc.)
-- description: Optional definition of the term`;
+- description: Optional definition of the term
+
+A result may also include sourceErrors, listing sources that could not be searched.`;
   },
 };
 
