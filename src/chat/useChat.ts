@@ -8,7 +8,8 @@ import { fetchUrlTool } from "./tools/fetchUrl";
 import { lookupOntologyTermTool } from "./tools/lookupOntologyTerm";
 import { fetchSchema } from "../schemas/schemaService";
 import { parseSuggestions } from "./parseSuggestions";
-import { getStoredOpenRouterApiKey } from "./apiKeyStorage";
+import { parseCompletionStream } from "./parseCompletionStream";
+import { COMPLETION_URL, buildCompletionHeaders } from "./completionApi";
 
 const DANDI_METADATA_DOCS_URL =
   "https://raw.githubusercontent.com/dandi/dandi-docs/refs/heads/master/docs/user-guide-sharing/dandiset-metadata.md";
@@ -536,17 +537,9 @@ ${plainTextConversation}`;
       const systemPrompt = buildSystemPrompt();
 
       // Make API call for summary
-      const apiKey = getStoredOpenRouterApiKey();
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (apiKey) {
-        headers["x-openrouter-key"] = apiKey;
-      }
-
-      const response = await fetch("https://qp-worker.neurosift.app/api/completion", {
+      const response = await fetch(COMPLETION_URL, {
         method: "POST",
-        headers,
+        headers: buildCompletionHeaders(),
         body: JSON.stringify({
           model: chat.model,
           systemMessage: systemPrompt,
@@ -567,39 +560,11 @@ ${plainTextConversation}`;
       }
 
       // Parse the streaming response
-      let fullContent = "";
-      let promptTokens = 0;
-      let completionTokens = 0;
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                fullContent += delta;
-              }
-              // Get token usage from final chunk
-              if (parsed.usage) {
-                promptTokens = parsed.usage.prompt_tokens || 0;
-                completionTokens = parsed.usage.completion_tokens || 0;
-              }
-            } catch {
-              // Ignore parse errors
-            }
-          }
-        }
-      }
+      const {
+        assistantContent: fullContent,
+        promptTokens,
+        completionTokens,
+      } = await parseCompletionStream(reader);
 
       // Calculate cost for this model
       const estimatedCost = getEstimatedCostForModel(chat.model, promptTokens, completionTokens);
@@ -672,17 +637,9 @@ ${plainTextConversation}`;
       };
 
       // Make a simple completion request (no tools needed for suggestions)
-      const apiKey = getStoredOpenRouterApiKey();
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (apiKey) {
-        headers["x-openrouter-key"] = apiKey;
-      }
-
-      const response = await fetch("https://qp-worker.neurosift.app/api/completion", {
+      const response = await fetch(COMPLETION_URL, {
         method: "POST",
-        headers,
+        headers: buildCompletionHeaders(),
         body: JSON.stringify({
           model: suggestionsChat.model,
           systemMessage: systemPrompt,
@@ -701,32 +658,7 @@ ${plainTextConversation}`;
       if (!reader) return;
 
       // Parse the streaming response
-      let fullContent = "";
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                fullContent += delta;
-              }
-            } catch {
-              // Ignore parse errors
-            }
-          }
-        }
-      }
+      const { assistantContent: fullContent } = await parseCompletionStream(reader);
 
       // Parse suggestions from the response
       const { suggestions } = parseSuggestions(fullContent);

@@ -1,7 +1,7 @@
 import { QPTool, ToolExecutionContext, Chat, ChatMessage, CompletionRequest } from "./types";
 import { AVAILABLE_MODELS } from "./availableModels";
-import { getStoredOpenRouterApiKey } from "./apiKeyStorage";
 import { parseCompletionStream } from "./parseCompletionStream";
+import { COMPLETION_URL, buildCompletionHeaders } from "./completionApi";
 
 // Retry configuration for rate limit errors
 const MAX_RETRIES = 3;
@@ -38,14 +38,7 @@ const processCompletion = async (
     app: "dandiset-metadata-assistant",
   };
 
-  const apiKey = getStoredOpenRouterApiKey();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  if (apiKey) {
-    headers["x-openrouter-key"] = apiKey;
-  }
+  const headers = buildCompletionHeaders();
 
   // Fetch with retry logic for rate limit errors
   let response: Response | null = null;
@@ -53,7 +46,7 @@ const processCompletion = async (
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      response = await fetch("https://qp-worker.neurosift.app/api/completion", {
+      response = await fetch(COMPLETION_URL, {
         method: "POST",
         headers,
         body: JSON.stringify(request),
