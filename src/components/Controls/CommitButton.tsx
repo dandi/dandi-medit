@@ -5,7 +5,7 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import LockIcon from '@mui/icons-material/Lock';
 import LinkIcon from '@mui/icons-material/Link';
 import { useMetadataContext } from '../../context/MetadataContext';
-import { commitMetadataChanges, fetchDandisetVersionInfo, checkUserIsOwner } from '../../utils/api';
+import { commitMetadataChanges, fetchDandisetVersionInfo, checkUserCanEdit } from '../../utils/api';
 import { createProposalLink } from '../../core/proposalLink';
 import type { DandisetMetadata } from '../../types/dandiset';
 
@@ -32,29 +32,29 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
   const [commitSuccess, setCommitSuccess] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
-  const [isOwner, setIsOwner] = useState<boolean | null>(null);
+  const [canEdit, setCanEdit] = useState<boolean | null>(null);
 
   const hasChanges = JSON.stringify(originalMetadata) !== JSON.stringify(modifiedMetadata);
-  const canCommit = hasChanges && !!apiKey && !!versionInfo && isOwner === true;
+  const canCommit = hasChanges && !!apiKey && !!versionInfo && canEdit === true;
 
-  // Check if the user is an owner of the dandiset
+  // Check whether the user may edit the dandiset (owner or administrator)
   useEffect(() => {
-    async function checkOwnership() {
+    async function checkEditPermission() {
       if (!apiKey || !dandisetId) {
-        setIsOwner(null);
+        setCanEdit(null);
         return;
       }
 
       try {
-        const ownerStatus = await checkUserIsOwner(dandisetId, apiKey, dandiApiBase);
-        setIsOwner(ownerStatus);
+        const editStatus = await checkUserCanEdit(dandisetId, apiKey, dandiApiBase);
+        setCanEdit(editStatus);
       } catch (error) {
-        console.error('Failed to check ownership:', error);
-        setIsOwner(false);
+        console.error('Failed to check edit permission:', error);
+        setCanEdit(false);
       }
     }
 
-    checkOwnership();
+    checkEditPermission();
   }, [apiKey, dandisetId]);
 
   const handleCommit = async () => {
@@ -183,8 +183,8 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
           title={
             !apiKey
               ? 'API key required to commit changes'
-              : isOwner === false
-              ? 'You must be an owner of this dandiset to commit changes'
+              : canEdit === false
+              ? 'You must be an owner or administrator of this dandiset to commit changes'
               : !hasChanges
               ? 'No pending changes to commit'
               : 'Commit all pending changes'

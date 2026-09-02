@@ -204,7 +204,7 @@ export async function fetchDandisetOwners(
   return data as DandisetOwner[];
 }
 
-export async function checkUserIsOwner(
+export async function checkUserCanEdit(
   dandisetId: string,
   apiKey: string,
   dandiApiBase: string
@@ -215,9 +215,14 @@ export async function checkUserIsOwner(
       fetchDandisetOwners(dandisetId, apiKey, dandiApiBase),
     ]);
 
+    // DANDI administrators can update any dandiset, not only the ones they own.
+    if (currentUser.admin) {
+      return true;
+    }
+
     return owners.some((owner) => owner.username === currentUser.username);
   } catch (error) {
-    console.error('Failed to check ownership:', error);
+    console.error('Failed to check edit permission:', error);
     return false;
   }
 }
