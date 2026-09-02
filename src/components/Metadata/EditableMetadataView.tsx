@@ -29,7 +29,7 @@ import VerifiedIcon from '@mui/icons-material/Verified';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
-import { useMetadataContext } from '../../context/MetadataContext';
+import { useMetadataContext } from '../../context/useMetadataContext';
 import { computeDelta, deltaToChanges } from '../../core/metadataDiff';
 import type { MetadataOperationType } from '../../core/metadataOperations';
 import { EditableTextField } from './EditableTextField';

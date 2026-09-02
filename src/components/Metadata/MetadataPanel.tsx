@@ -3,7 +3,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import { Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material';
 import { useState } from 'react';
-import { useMetadataContext } from '../../context/MetadataContext';
+import { useMetadataContext } from '../../context/useMetadataContext';
 import { CommitButton } from '../Controls/CommitButton';
 import { DandisetInfo } from './DandisetInfo';
 import { JsonEditorDialog } from './JsonEditorDialog';

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { QPTool, ToolExecutionContext, Chat, ChatMessage, CompletionRequest } from "./types";
 import { AVAILABLE_MODELS } from "./availableModels";
 import { getStoredOpenRouterApiKey } from "./apiKeyStorage";
