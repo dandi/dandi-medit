@@ -3,7 +3,6 @@ import {
   applyDelta,
   changeToDescription,
   computeDelta,
-  computeDiff,
   deltaToChanges,
   formatValue,
   hasDifferences,
@@ -108,11 +107,11 @@ describe('deltaToChanges', () => {
   });
 });
 
-describe('computeDiff', () => {
+describe('computeDelta with deltaToChanges', () => {
   it('reports the same changes regardless of key order', () => {
     const original = { name: 'x', license: 'CC0' };
     const modified = { license: 'CC-BY', name: 'x' };
-    expect(computeDiff(original, modified)).toEqual([
+    expect(deltaToChanges(computeDelta(original, modified))).toEqual([
       { path: 'license', type: 'modified', oldValue: 'CC0', newValue: 'CC-BY' },
     ]);
   });
