@@ -1,5 +1,5 @@
 import { FunctionComponent, useState } from "react";
-import { Box, CircularProgress, Collapse, IconButton, Paper, Tooltip, Typography } from "@mui/material";
+import { Box, Chip, CircularProgress, Collapse, IconButton, Paper, Tooltip, Typography } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import BuildIcon from "@mui/icons-material/Build";
@@ -9,6 +9,7 @@ import HistoryIcon from "@mui/icons-material/History";
 import MarkdownContent from "./MarkdownContent";
 import { ChatMessage, ORContentPart } from "../../chat/types";
 import { parseSuggestions } from "../../chat/parseSuggestions";
+import { parseRefusalTags, refusalTagLabels } from "../../chat/parseRefusalTags";
 
 interface MessageItemProps {
   message: ChatMessage;
@@ -362,7 +363,11 @@ const MessageItem: FunctionComponent<MessageItemProps> = ({
   if (message.role === "assistant") {
     const rawContent = messageContentToString(message.content);
     // Strip suggestions block from displayed content
-    const content = stripSuggestionsFromContent(rawContent);
+    const contentWithoutSuggestions = stripSuggestionsFromContent(rawContent);
+    // Strip refusal tags and surface them as labels instead
+    const { cleanedContent: content, tags: refusalTags } = parseRefusalTags(
+      contentWithoutSuggestions
+    );
     const hasToolCalls = message.tool_calls && message.tool_calls.length > 0;
 
     return (
@@ -390,6 +395,27 @@ const MessageItem: FunctionComponent<MessageItemProps> = ({
           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
             <SmartToyIcon sx={{ fontSize: 20, mt: 0.5, color: "primary.main" }} />
             <Box sx={{ flex: 1, minWidth: 0 }}>
+              {refusalTags.length > 0 && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 0.5,
+                    mb: content ? 1 : 0,
+                  }}
+                >
+                  {refusalTags.map((tag) => (
+                    <Chip
+                      key={tag}
+                      label={refusalTagLabels[tag]}
+                      size="small"
+                      variant="outlined"
+                      color="warning"
+                      sx={{ fontSize: "0.7rem", height: 22 }}
+                    />
+                  ))}
+                </Box>
+              )}
               {content && (
                 <Box
                   sx={{

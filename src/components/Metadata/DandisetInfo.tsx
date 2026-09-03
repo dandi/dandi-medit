@@ -4,7 +4,7 @@ import FolderIcon from '@mui/icons-material/Folder';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import PersonIcon from '@mui/icons-material/Person';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import { useMetadataContext } from '../../context/MetadataContext';
+import { useMetadataContext } from '../../context/useMetadataContext';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 Bytes';

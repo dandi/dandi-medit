@@ -1,4 +1,4 @@
-import type { DandisetVersionInfo } from '../types/dandiset';
+import type { DandisetMetadata, DandisetVersionInfo } from '../types/dandiset';
 import { DEFAULT_INSTANCE } from './dandiInstances';
 
 export interface OwnedDandiset {
@@ -31,8 +31,9 @@ export async function fetchDandisets(options: {
   page?: number;
   pageSize?: number;
   dandiApiBase: string;
+  signal?: AbortSignal;
 }): Promise<DandisetsPage> {
-  const { apiKey, onlyMine = false, hideEmpty = false, order = '-modified', page = 1, pageSize = 25, dandiApiBase } = options;
+  const { apiKey, onlyMine = false, hideEmpty = false, order = '-modified', page = 1, pageSize = 25, dandiApiBase, signal } = options;
   const params = new URLSearchParams({
     order,
     page: String(page),
@@ -51,7 +52,7 @@ export async function fetchDandisets(options: {
     headers['Authorization'] = `token ${apiKey}`;
   }
 
-  const response = await fetch(`${dandiApiBase}/dandisets/?${params}`, { headers });
+  const response = await fetch(`${dandiApiBase}/dandisets/?${params}`, { headers, signal });
 
   if (!response.ok) {
     if (response.status === 401) {
@@ -91,11 +92,10 @@ export async function fetchDandisetVersionInfo(
   return data as DandisetVersionInfo;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function commitMetadataChanges(
   dandisetId: string,
   version: string,
-  metadata: any,
+  metadata: DandisetMetadata,
   apiKey: string,
   dandiApiBase?: string
 ): Promise<void> {
