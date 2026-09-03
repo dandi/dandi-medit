@@ -3,6 +3,8 @@
  * before they are added to the metadata schema.
  */
 
+import { getProxiedUrl } from "../../utils/corsProxy";
+
 // ORCID pattern: 0000-0000-0000-0000 or 0000-0000-0000-000X
 const ORCID_PATTERN = /^\d{4}-\d{4}-\d{4}-(\d{3}X|\d{4})$/;
 
@@ -18,9 +20,20 @@ export interface ValidationResult {
 }
 
 /**
+ * Strip an orcid.org prefix from an ORCID value, leaving the bare identifier
+ * that the dandiset schema requires (for example "0000-0000-0000-0000").
+ */
+export function normalizeOrcid(value: string): string {
+  return value.trim().replace(/^(https?:\/\/)?(www\.)?orcid\.org\//i, "").trim();
+}
+
+/**
  * Validate that an ORCID identifier resolves to a real person
  */
 export async function validateOrcid(orcid: string): Promise<ValidationResult> {
+  // Accept the URL form by reducing it to the bare identifier first
+  orcid = normalizeOrcid(orcid);
+
   // First check format
   if (!ORCID_PATTERN.test(orcid)) {
     return {
@@ -131,10 +144,17 @@ export async function validateUrl(url: string): Promise<ValidationResult> {
     };
   }
 
+  // Browsers block cross-origin requests to sites that do not send CORS
+  // headers, which is most of the web, so without a proxy a failed request
+  // tells us nothing about whether the page exists. Rather than report a
+  // validation that did not happen, accept the URL and skip the network call.
+  const proxyUrl = getProxiedUrl(url);
+  if (!proxyUrl) {
+    return { isValid: true };
+  }
+
   // Try to validate the URL resolves
   try {
-    // Use a CORS proxy for browser compatibility
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
     const response = await fetch(proxyUrl, {
       method: "HEAD",
     });
