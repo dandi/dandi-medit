@@ -11,7 +11,7 @@ import {
   IconButton,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import { useMetadataContext } from "../../context/MetadataContext";
+import { useMetadataContext } from "../../context/useMetadataContext";
 import {
   validateFullMetadata,
   formatValidationErrors,
