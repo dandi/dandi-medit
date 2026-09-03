@@ -1,10 +1,18 @@
 import { QPTool, ToolExecutionContext } from "../types";
+import { getProxiedUrl } from "../../utils/corsProxy";
+import cognitiveAtlasSnapshot from "../../data/cognitive-atlas-concepts.json";
 
 /**
  * A tool that allows the AI to look up validated ontology terms from
  * UBERON (anatomy), DOID (diseases), Cognitive Atlas (cognitive concepts),
  * and other biomedical ontologies using the EBI Ontology Lookup Service (OLS)
- * and the Cognitive Atlas API.
+ * and a bundled snapshot of the Cognitive Atlas concept list.
+ *
+ * The Cognitive Atlas API does not send CORS headers, so a browser cannot
+ * query it directly, and it returns every concept on each call anyway. The
+ * search therefore runs over src/data/cognitive-atlas-concepts.json, which
+ * npm run update-cognitive-atlas refreshes. When a CORS proxy is configured
+ * the live list is fetched through it first and the snapshot is the fallback.
  */
 
 // Ontology configurations with their OLS identifiers and DANDI schemaKey mappings
@@ -60,11 +68,14 @@ interface OLSResponse {
   };
 }
 
-interface CognitiveAtlasResult {
+export interface CognitiveAtlasConcept {
   id: string;
   name: string;
-  definition_text?: string;
+  alias?: string;
+  definition?: string;
 }
+
+export type CognitiveAtlasSource = "live" | "snapshot";
 
 interface FormattedResult {
   identifier: string;
@@ -165,21 +176,20 @@ export const lookupOntologyTermTool: QPTool = {
         }
       }
 
-      // Search Cognitive Atlas
+      // Search Cognitive Atlas (live through the CORS proxy when one is
+      // configured, otherwise the bundled snapshot)
+      let cognitiveAtlasSource: CognitiveAtlasSource | undefined;
       if (searchCognitiveAtlas) {
-        try {
-          const cogAtlasResults = await searchCognitiveAtlas_API(term, clampedMaxResults);
-          for (const result of cogAtlasResults) {
-            allResults.push({
-              identifier: `https://www.cognitiveatlas.org/concept/id/${result.id}`,
-              name: result.name,
-              schemaKey: "GenericType",
-              ontology: "CognitiveAtlas",
-              description: result.definition_text,
-            });
-          }
-        } catch (error) {
-          console.error("Error searching Cognitive Atlas:", error);
+        const { concepts, source } = await searchCognitiveAtlasConcepts(term, clampedMaxResults);
+        cognitiveAtlasSource = source;
+        for (const concept of concepts) {
+          allResults.push({
+            identifier: `https://www.cognitiveatlas.org/concept/id/${concept.id}`,
+            name: concept.name,
+            schemaKey: "GenericType",
+            ontology: "CognitiveAtlas",
+            description: concept.definition,
+          });
         }
       }
 
@@ -190,6 +200,7 @@ export const lookupOntologyTermTool: QPTool = {
             term,
             category,
             results: [],
+            ...(cognitiveAtlasSource ? { cognitiveAtlasSource } : {}),
             message: `No matching terms found for "${term}". Try different search terms or check spelling.`,
           }),
         };
@@ -221,6 +232,7 @@ export const lookupOntologyTermTool: QPTool = {
           category,
           resultsCount: limitedResults.length,
           totalFound: allResults.length,
+          ...(cognitiveAtlasSource ? { cognitiveAtlasSource } : {}),
           results: limitedResults,
           usage: `To add a term to the dandiset metadata, use propose_metadata_change with:
 - path: "about.${"{next_index}"}" (use the next available index in the about array)
@@ -251,7 +263,7 @@ export const lookupOntologyTermTool: QPTool = {
 **Ontologies searched:**
 - **Anatomy**: UBERON (anatomical structures), CL (cell types)
 - **Disorder**: DOID (diseases), HP (phenotypes), NCIT (NCI thesaurus)
-- **Cognitive**: Cognitive Atlas (cognitive concepts, mental processes, psychological constructs)
+- **Cognitive**: Cognitive Atlas (cognitive concepts, mental processes, psychological constructs), searched from a bundled copy of its concept list, so results do not depend on reaching cognitiveatlas.org
 
 **Examples:**
 - Look up a brain region: { "term": "hippocampus", "category": "anatomy" }
@@ -307,39 +319,91 @@ async function searchOLS(
   return data.response?.docs || [];
 }
 
+const COGNITIVE_ATLAS_API = "https://www.cognitiveatlas.org/api/v-alpha/concept";
+const COGNITIVE_ATLAS_TIMEOUT_MS = 8000;
+
 /**
- * Search the Cognitive Atlas API for cognitive concepts
+ * Rank a concept against a search term. Lower is better; null means no match.
+ * Exact name matches come first, then names that start with the term, then
+ * names that contain it, then alias matches, then definition matches.
  */
-async function searchCognitiveAtlas_API(
+function rankCognitiveAtlasConcept(concept: CognitiveAtlasConcept, termLower: string): number | null {
+  const name = concept.name.toLowerCase();
+  if (name === termLower) return 0;
+  if (name.startsWith(termLower)) return 1;
+  if (name.includes(termLower)) return 2;
+  if (concept.alias?.toLowerCase().includes(termLower)) return 3;
+  if (concept.definition?.toLowerCase().includes(termLower)) return 4;
+  return null;
+}
+
+/**
+ * Search a list of Cognitive Atlas concepts for a term. Exported for tests;
+ * defaults to the bundled snapshot.
+ */
+export function searchCognitiveAtlasSnapshot(
   term: string,
-  maxResults: number
-): Promise<CognitiveAtlasResult[]> {
-  const baseUrl = "https://www.cognitiveatlas.org/api/v-alpha/concept";
-  const params = new URLSearchParams({
-    search: term,
-  });
+  maxResults: number,
+  concepts: CognitiveAtlasConcept[] = cognitiveAtlasSnapshot.concepts,
+): CognitiveAtlasConcept[] {
+  const termLower = term.trim().toLowerCase();
+  if (!termLower) return [];
+  return concepts
+    .map((concept) => ({ concept, rank: rankCognitiveAtlasConcept(concept, termLower) }))
+    .filter((entry): entry is { concept: CognitiveAtlasConcept; rank: number } => entry.rank !== null)
+    .sort((a, b) => a.rank - b.rank || a.concept.name.length - b.concept.name.length)
+    .slice(0, maxResults)
+    .map((entry) => entry.concept);
+}
 
-  const response = await fetch(`${baseUrl}?${params.toString()}`, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Cognitive Atlas API returned ${response.status}: ${response.statusText}`);
+/**
+ * Fetch the live concept list through the configured CORS proxy. Returns
+ * null when no proxy is configured or the request fails, so the caller can
+ * fall back to the snapshot.
+ */
+async function fetchLiveCognitiveAtlasConcepts(): Promise<CognitiveAtlasConcept[] | null> {
+  const proxied = getProxiedUrl(COGNITIVE_ATLAS_API);
+  if (!proxied) return null;
+  try {
+    const response = await fetch(proxied, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(COGNITIVE_ATLAS_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`Cognitive Atlas API returned ${response.status}: ${response.statusText}`);
+    }
+    const raw: { id?: unknown; name?: unknown; alias?: unknown; definition_text?: unknown }[] =
+      await response.json();
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new Error("Cognitive Atlas API returned no concepts");
+    }
+    return raw
+      .filter((c) => typeof c.id === "string" && typeof c.name === "string")
+      .map((c) => ({
+        id: c.id as string,
+        name: (c.name as string).trim(),
+        ...(typeof c.alias === "string" && c.alias.trim() ? { alias: c.alias.trim() } : {}),
+        ...(typeof c.definition_text === "string" && c.definition_text.trim()
+          ? { definition: c.definition_text.trim() }
+          : {}),
+      }));
+  } catch (error) {
+    console.warn("Live Cognitive Atlas lookup failed, using the bundled snapshot:", error);
+    return null;
   }
+}
 
-  const data: CognitiveAtlasResult[] = await response.json();
-
-  // The API returns all concepts - filter by search term and limit results
-  const termLower = term.toLowerCase();
-  const filtered = data
-    .filter((item) =>
-      item.name.toLowerCase().includes(termLower) ||
-      item.definition_text?.toLowerCase().includes(termLower)
-    )
-    .slice(0, maxResults);
-
-  return filtered;
+/**
+ * Search Cognitive Atlas concepts, live through the proxy when possible and
+ * otherwise from the bundled snapshot. Reports which source answered.
+ */
+export async function searchCognitiveAtlasConcepts(
+  term: string,
+  maxResults: number,
+): Promise<{ concepts: CognitiveAtlasConcept[]; source: CognitiveAtlasSource }> {
+  const live = await fetchLiveCognitiveAtlasConcepts();
+  if (live) {
+    return { concepts: searchCognitiveAtlasSnapshot(term, maxResults, live), source: "live" };
+  }
+  return { concepts: searchCognitiveAtlasSnapshot(term, maxResults), source: "snapshot" };
 }
