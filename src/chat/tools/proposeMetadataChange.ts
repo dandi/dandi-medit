@@ -1,12 +1,37 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getReadOnlyFieldsSync } from "../../schemas/schemaService";
 import { QPTool, ToolExecutionContext, MetadataOperationType } from "../types";
-import { validateIdentifierInValue } from "./validateUrls";
+import { validateIdentifierInValue, normalizeOrcid } from "./validateUrls";
 
 interface SingleChange {
   operation: MetadataOperationType;
   path: string;
   value?: any;
+}
+
+/**
+ * Matches a descriptive prefix on an award number, such as "Grant No. 12345",
+ * "Award #7", "Project number 3", or a bare "#12345".
+ *
+ * Each keyword has to end on a word boundary and be followed by at least one
+ * separator character (period, colon, hash, or whitespace) before the identifier
+ * itself. That keeps identifiers that merely begin with the same letters, such as
+ * "NOAA-123" or "Nordic-2020", from being mistaken for a prefixed value. A hyphen
+ * is deliberately not a separator, because it is a structural character inside many
+ * real award identifiers, so "Grant-2020-001" is treated as an identifier rather
+ * than as the word "Grant" followed by a number.
+ */
+export const AWARD_NUMBER_PREFIX_PATTERN =
+  /^(?:(?:(?:project|grant|award|number|no)\b[.:#\s]*)*(?:project|grant|award|number|no)\b[.:#\s]+|#\s*)(?=\S)/i;
+
+/** Returns true when the award number carries a descriptive prefix. */
+export function isPrefixedAwardNumber(awardNumber: string): boolean {
+  return AWARD_NUMBER_PREFIX_PATTERN.test(awardNumber);
+}
+
+/** Removes a descriptive prefix from an award number, leaving just the identifier. */
+export function stripAwardNumberPrefix(awardNumber: string): string {
+  return awardNumber.replace(AWARD_NUMBER_PREFIX_PATTERN, "").trim();
 }
 
 export const proposeMetadataChangeTool: QPTool = {
@@ -87,6 +112,21 @@ export const proposeMetadataChangeTool: QPTool = {
   ) => {
     const { explanation } = params;
     const readOnlyFields = getReadOnlyFieldsSync();
+
+    // The schema stores ORCIDs as the bare identifier, so reduce any orcid.org
+    // URL to that form before the value is validated and applied.
+    const normalizeOrcidInValue = (path: string, value: any): any => {
+      if (typeof value === "string" && /contributor\.\d+\.identifier$/.test(path)) {
+        return normalizeOrcid(value);
+      }
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const obj = value as Record<string, any>;
+        if (obj.schemaKey === "Person" && typeof obj.identifier === "string") {
+          return { ...obj, identifier: normalizeOrcid(obj.identifier) };
+        }
+      }
+      return value;
+    };
     const validOperations: MetadataOperationType[] = ['set', 'delete', 'insert', 'append'];
 
     // Build the list of changes to apply
@@ -114,7 +154,8 @@ export const proposeMetadataChangeTool: QPTool = {
 
     for (let i = 0; i < changes.length; i++) {
       const change = changes[i];
-      const { operation = 'set', path, value } = change;
+      const { operation = 'set', path } = change;
+      const value = normalizeOrcidInValue(path, change.value);
 
       // Validate operation
       if (!validOperations.includes(operation)) {
@@ -209,10 +250,10 @@ export const proposeMetadataChangeTool: QPTool = {
           awardNumbersToCheck.push({ awardNumber: (value as any).awardNumber, location: `${path}.awardNumber` });
         }
 
-        const prefixPattern = /^(project\s*(number|no\.?|#)?|grant\s*(number|no\.?|#)?|award\s*(number|no\.?|#)?|no\.?|#)\s*/i;
+        let hasPrefixedAwardNumber = false;
         for (const { awardNumber, location } of awardNumbersToCheck) {
-          if (prefixPattern.test(awardNumber)) {
-            const cleaned = awardNumber.replace(prefixPattern, '').trim();
+          if (isPrefixedAwardNumber(awardNumber)) {
+            const cleaned = stripAwardNumberPrefix(awardNumber);
             results.push({
               success: false,
               index: i,
@@ -220,10 +261,11 @@ export const proposeMetadataChangeTool: QPTool = {
               error: `Award number at "${location}" should be only the identifier (e.g., "${cleaned}"), not prefixed with descriptive text like "${awardNumber}".`,
             });
             allSucceeded = false;
-            continue;
+            hasPrefixedAwardNumber = true;
+            break;
           }
         }
-        if (!allSucceeded && results[results.length - 1]?.index === i) continue;
+        if (hasPrefixedAwardNumber) continue;
       }
 
       // Validate URLs and identifiers (ORCID, ROR IDs) before applying changes

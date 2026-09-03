@@ -1,7 +1,7 @@
 import { Box, Typography, Button } from '@mui/material';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
-import { useMetadataContext } from '../../context/MetadataContext';
+import { useMetadataContext } from '../../context/useMetadataContext';
 
 interface DandisetIndicatorProps {
   onChangeDandiset: () => void;

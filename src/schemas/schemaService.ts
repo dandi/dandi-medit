@@ -1,107 +1,154 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * Service for dynamically fetching and caching DANDI JSON schemas
+ * Service for loading and caching the DANDI dandiset JSON schema.
+ *
+ * A copy of the schema is bundled with the app and seeded into the cache at
+ * module load, so synchronous consumers (validation, readOnly field
+ * protection) always have a schema to work with. When a DANDI instance is
+ * selected, the schema that instance actually serves is fetched from
+ * `${apiUrl}/schemas/?model=Dandiset` and becomes the current schema. If that
+ * request fails, the bundled copy stays in use.
+ *
+ * The bundled copy should be refreshed when dandischema releases a new
+ * version: replace src/schemas/dandiset-schema-<version>.json, update the
+ * import below, and update BUNDLED_SCHEMA_VERSION.
  */
 
-// Cache for loaded schemas by version
-const schemaCache: Map<string, any> = new Map();
+import bundledSchema from "./dandiset-schema-0.7.0.json";
 
-// Default schema version to use if none specified
-const DEFAULT_SCHEMA_VERSION = "0.7.0";
+/** Version of the schema bundled with the app. */
+export const BUNDLED_SCHEMA_VERSION = "0.7.0";
 
-// Base URL for fetching schemas from the DANDI schema repository
-const SCHEMA_BASE_URL =
-  "https://raw.githubusercontent.com/dandi/schema/refs/heads/master/releases";
+/** Cache key under which the bundled schema is stored. */
+export const BUNDLED_SCHEMA_KEY = "bundled";
 
-/**
- * Get the schema URL for a given version
- */
-export function getSchemaUrl(version: string): string {
-  return `${SCHEMA_BASE_URL}/${version}/dandiset.json`;
+// Cache of loaded schemas. The bundled schema is keyed by BUNDLED_SCHEMA_KEY;
+// schemas fetched from a DANDI instance are keyed by that instance's apiUrl.
+const schemaCache: Map<string, any> = new Map([[BUNDLED_SCHEMA_KEY, bundledSchema]]);
+
+// Key of the schema that consumers should currently use.
+let currentSchemaKey: string = BUNDLED_SCHEMA_KEY;
+
+// The apiUrl most recently requested via loadSchemaForInstance. Used to make
+// sure a slow response for an earlier instance does not overwrite the schema
+// for the instance the user has since switched to.
+let requestedApiUrl: string | null = null;
+
+// The in-flight instance load, if any, so async consumers can wait for it.
+let pendingLoad: Promise<any> | null = null;
+
+function normalizeApiUrl(apiUrl: string): string {
+  return apiUrl.replace(/\/+$/, "");
 }
 
 /**
- * Fetch a schema for the given version
- * Returns cached schema if available
+ * Get the URL from which a DANDI instance serves its dandiset schema
  */
-export async function fetchSchema(version?: string): Promise<any> {
-  const schemaVersion = version || DEFAULT_SCHEMA_VERSION;
+export function getInstanceSchemaUrl(apiUrl: string): string {
+  return `${normalizeApiUrl(apiUrl)}/schemas/?model=Dandiset`;
+}
 
-  // Check cache first
-  if (schemaCache.has(schemaVersion)) {
-    return schemaCache.get(schemaVersion);
+/**
+ * Key of the schema currently in use (BUNDLED_SCHEMA_KEY or an instance apiUrl)
+ */
+export function getCurrentSchemaKey(): string {
+  return currentSchemaKey;
+}
+
+/**
+ * Get a cached schema synchronously. With no key, returns the current schema,
+ * which is always available because the bundled schema seeds the cache.
+ */
+export function getCachedSchema(key?: string): any | undefined {
+  return schemaCache.get(key ?? currentSchemaKey);
+}
+
+/**
+ * Read the schema version string out of a schema (from the schemaVersion
+ * property's default), if present.
+ */
+export function getSchemaVersion(schema: any): string | undefined {
+  const version = schema?.properties?.schemaVersion?.default;
+  return typeof version === "string" ? version : undefined;
+}
+
+/**
+ * Get the version of the schema currently in use
+ */
+export function getCurrentSchemaVersion(): string {
+  return getSchemaVersion(getCachedSchema()) ?? BUNDLED_SCHEMA_VERSION;
+}
+
+/**
+ * Load the dandiset schema served by a DANDI instance and make it the current
+ * schema. Falls back to the bundled schema if the request fails. Never rejects.
+ */
+export async function loadSchemaForInstance(apiUrl: string): Promise<any> {
+  const key = normalizeApiUrl(apiUrl);
+  requestedApiUrl = key;
+
+  if (schemaCache.has(key)) {
+    currentSchemaKey = key;
+    return schemaCache.get(key);
   }
 
-  const url = getSchemaUrl(schemaVersion);
-
-  try {
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch schema v${schemaVersion}: ${response.status} ${response.statusText}`
-      );
-    }
-
-    const schema = await response.json();
-
-    // Cache the schema
-    schemaCache.set(schemaVersion, schema);
-
-    return schema;
-  } catch (error) {
-    console.error(`Error fetching schema v${schemaVersion}:`, error);
-
-    // If fetch fails and we have a different version cached, return that as fallback
-    if (schemaCache.size > 0) {
-      const firstEntry = schemaCache.entries().next().value;
-      if (firstEntry) {
-        const [, cachedSchema] = firstEntry;
-        console.warn(`Falling back to cached schema`);
-        return cachedSchema;
+  const load = (async () => {
+    try {
+      const response = await fetch(getInstanceSchemaUrl(key));
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
       }
+      const schema = await response.json();
+      if (!schema || typeof schema !== "object" || !schema.properties) {
+        throw new Error("Response does not look like a JSON schema");
+      }
+      schemaCache.set(key, schema);
+      if (requestedApiUrl === key) {
+        currentSchemaKey = key;
+      }
+      return schema;
+    } catch (error) {
+      console.warn(
+        `Failed to load dandiset schema from ${key}; using bundled schema v${BUNDLED_SCHEMA_VERSION}:`,
+        error
+      );
+      if (requestedApiUrl === key) {
+        currentSchemaKey = BUNDLED_SCHEMA_KEY;
+      }
+      return schemaCache.get(BUNDLED_SCHEMA_KEY);
     }
+  })();
 
-    throw error;
+  pendingLoad = load;
+  try {
+    return await load;
+  } finally {
+    if (pendingLoad === load) {
+      pendingLoad = null;
+    }
   }
 }
 
 /**
- * Preload a schema (useful for initialization)
+ * Get the current schema, waiting for any in-flight instance load first.
+ * Always resolves, because the bundled schema is available as a fallback.
  */
-export async function preloadSchema(version?: string): Promise<void> {
-  await fetchSchema(version);
+export async function fetchSchema(): Promise<any> {
+  if (pendingLoad) {
+    await pendingLoad;
+  }
+  return getCachedSchema();
 }
 
 /**
- * Get a cached schema synchronously (returns undefined if not cached)
- */
-export function getCachedSchema(version?: string): any | undefined {
-  const schemaVersion = version || DEFAULT_SCHEMA_VERSION;
-  return schemaCache.get(schemaVersion);
-}
-
-/**
- * Check if a schema version is cached
- */
-export function isSchemacached(version?: string): boolean {
-  const schemaVersion = version || DEFAULT_SCHEMA_VERSION;
-  return schemaCache.has(schemaVersion);
-}
-
-/**
- * Clear the schema cache
+ * Reset the cache to just the bundled schema
  */
 export function clearSchemaCache(): void {
   schemaCache.clear();
-}
-
-/**
- * Get the default schema version
- */
-export function getDefaultSchemaVersion(): string {
-  return DEFAULT_SCHEMA_VERSION;
+  schemaCache.set(BUNDLED_SCHEMA_KEY, bundledSchema);
+  currentSchemaKey = BUNDLED_SCHEMA_KEY;
+  requestedApiUrl = null;
 }
 
 /**
@@ -124,14 +171,10 @@ export function getReadOnlyFields(schema: any): Set<string> {
 }
 
 /**
- * Get readOnly fields from the cached schema (sync)
+ * Get readOnly fields from the current schema (sync)
  */
 export function getReadOnlyFieldsSync(): Set<string> {
-  const schema = getCachedSchema();
-  if (!schema) {
-    return new Set();
-  }
-  return getReadOnlyFields(schema);
+  return getReadOnlyFields(getCachedSchema());
 }
 
 /**
