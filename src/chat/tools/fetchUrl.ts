@@ -1,9 +1,16 @@
 import { QPTool, ToolExecutionContext } from "../types";
+import { getProxiedUrl } from "../../utils/corsProxy";
 
 /**
  * A tool that allows the AI to fetch content from external URLs.
  * This addresses the hallucination issue where the AI would fabricate
  * metadata instead of actually retrieving it from external sources.
+ *
+ * The browser cannot read most cross-origin pages directly, so publication
+ * links (DOI, PubMed, bioRxiv, medRxiv) are resolved through OpenAlex and
+ * Europe PMC, both of which send CORS headers. Other pages are fetched
+ * directly when the site allows it and otherwise through the optional proxy
+ * configured with VITE_CORS_PROXY_URL.
  */
 
 // List of allowed domains to prevent misuse
@@ -43,6 +50,22 @@ const ALLOWED_DOMAINS = [
   "orcid.org",
 ];
 
+// Fields useful for metadata extraction; keeps OpenAlex responses small
+const OPENALEX_WORK_SELECT =
+  "id,doi,title,display_name,authorships,publication_year,publication_date,funders,keywords";
+
+const EUROPE_PMC_REST = "https://www.ebi.ac.uk/europepmc/webservices/rest";
+
+const FETCH_HEADERS = {
+  Accept:
+    "application/json,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+};
+
+// OpenRouter rejects messages over 100000 characters, and the JSON wrapper
+// adds indentation and escaping overhead, so cap the final serialized
+// result well below that limit rather than the raw content length.
+const MAX_RESULT_LENGTH = 80000;
+
 const isUrlAllowed = (url: string): boolean => {
   try {
     const parsedUrl = new URL(url);
@@ -55,18 +78,209 @@ const isUrlAllowed = (url: string): boolean => {
   }
 };
 
+/**
+ * A publication identified from a URL: either a DOI or a PubMed ID.
+ */
+type PublicationRef = { doi: string; pmid?: undefined } | { pmid: string; doi?: undefined };
+
+/**
+ * Recognize URLs that point at a publication we can resolve through
+ * OpenAlex and Europe PMC instead of fetching the page itself.
+ */
+const identifyPublication = (parsedUrl: URL): PublicationRef | null => {
+  const hostname = parsedUrl.hostname.toLowerCase();
+  const path = decodeURIComponent(parsedUrl.pathname).replace(/^\/+/, "");
+
+  if (hostname === "doi.org" || hostname === "dx.doi.org") {
+    return path.startsWith("10.") ? { doi: path } : null;
+  }
+
+  if (hostname.endsWith("biorxiv.org") || hostname.endsWith("medrxiv.org")) {
+    // Preprint pages look like /content/10.1101/2023.05.10.540238v2.full or
+    // /content/early/2023/05/12/2023.05.10.540238. The DOI is 10.1101/<id>
+    // without the version suffix.
+    const withPrefix = path.match(/10\.1101\/(\d[\d.]*\d)/);
+    const bare = path.match(/(?:^|\/)(\d{4}\.\d{2}\.\d{2}\.\d{6,})(?:v\d+)?(?:[./]|$)/);
+    const id = withPrefix?.[1] ?? bare?.[1];
+    return id ? { doi: `10.1101/${id}` } : null;
+  }
+
+  if (hostname === "pubmed.ncbi.nlm.nih.gov") {
+    const match = path.match(/^(\d+)/);
+    return match ? { pmid: match[1] } : null;
+  }
+
+  return null;
+};
+
+interface EuropePmcResult {
+  pmid?: string;
+  pmcid?: string;
+  doi?: string;
+  title?: string;
+  journalInfo?: { journal?: { title?: string } };
+  pubYear?: string;
+  abstractText?: string;
+  isOpenAccess?: string;
+}
+
+const searchEuropePmc = async (query: string): Promise<EuropePmcResult | null> => {
+  const searchUrl = `${EUROPE_PMC_REST}/search?query=${encodeURIComponent(query)}&format=json&resultType=core`;
+  const response = await fetch(searchUrl, { headers: { Accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`Europe PMC search failed: HTTP ${response.status}`);
+  }
+  const data = (await response.json()) as { resultList?: { result?: EuropePmcResult[] } };
+  return data.resultList?.result?.[0] ?? null;
+};
+
+/**
+ * Resolve a publication through OpenAlex and Europe PMC. The pieces are
+ * combined into one text result: OpenAlex metadata first, then the abstract,
+ * then open-access full text when Europe PMC has it.
+ */
+const fetchPublication = async (ref: PublicationRef): Promise<{ content: string; notes: string[] }> => {
+  const parts: string[] = [];
+  const notes: string[] = [];
+
+  let record: EuropePmcResult | null = null;
+  try {
+    const query = ref.doi ? `DOI:${ref.doi}` : `EXT_ID:${ref.pmid} AND SRC:MED`;
+    record = await searchEuropePmc(query);
+    if (!record) {
+      notes.push("Europe PMC has no record for this publication.");
+    }
+  } catch (error) {
+    notes.push(`Europe PMC lookup failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
+  const doi = ref.doi ?? record?.doi;
+  if (doi) {
+    try {
+      const openAlexUrl = `https://api.openalex.org/works/doi:${doi}?select=${OPENALEX_WORK_SELECT}`;
+      const response = await fetch(openAlexUrl, { headers: { Accept: "application/json" } });
+      if (response.ok) {
+        const work = await response.json();
+        parts.push(`OpenAlex metadata for DOI ${doi}:\n${JSON.stringify(work, null, 2)}`);
+      } else {
+        notes.push(`OpenAlex lookup for DOI ${doi} failed: HTTP ${response.status}`);
+      }
+    } catch (error) {
+      notes.push(`OpenAlex lookup failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  } else {
+    notes.push("No DOI could be determined for this publication, so OpenAlex was not queried.");
+  }
+
+  if (record) {
+    const header = [
+      record.title ? `Title: ${record.title}` : null,
+      record.journalInfo?.journal?.title ? `Journal: ${record.journalInfo.journal.title}` : null,
+      record.pubYear ? `Year: ${record.pubYear}` : null,
+      record.pmid ? `PMID: ${record.pmid}` : null,
+      record.pmcid ? `PMCID: ${record.pmcid}` : null,
+    ]
+      .filter((line) => line !== null)
+      .join("\n");
+    const abstract = record.abstractText
+      ? extractTextFromHtml(record.abstractText)
+      : "(no abstract available)";
+    parts.push(`Europe PMC record:\n${header}\n\nAbstract:\n${abstract}`);
+
+    if (record.pmcid && record.isOpenAccess === "Y") {
+      try {
+        const response = await fetch(`${EUROPE_PMC_REST}/${record.pmcid}/fullTextXML`, {
+          headers: { Accept: "application/xml" },
+        });
+        if (response.ok) {
+          const xml = await response.text();
+          parts.push(`Full text (Europe PMC ${record.pmcid}):\n${extractTextFromHtml(xml)}`);
+        } else {
+          notes.push(`Europe PMC full text for ${record.pmcid} is not available: HTTP ${response.status}`);
+        }
+      } catch (error) {
+        notes.push(`Europe PMC full text fetch failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
+    }
+  }
+
+  return { content: parts.join("\n\n"), notes };
+};
+
+/**
+ * Fetch an arbitrary page. Try the site directly first, since some send CORS
+ * headers, and fall back to the configured proxy when the direct request is
+ * blocked. Throws when neither works.
+ */
+const fetchPage = async (url: string): Promise<Response> => {
+  try {
+    return await fetch(url, { method: "GET", headers: FETCH_HEADERS });
+  } catch (directError) {
+    const proxiedUrl = getProxiedUrl(url);
+    if (!proxiedUrl) {
+      throw directError;
+    }
+    return await fetch(proxiedUrl, { method: "GET", headers: FETCH_HEADERS });
+  }
+};
+
+/**
+ * Serialize a successful result, truncating the content so that the final
+ * JSON string stays under MAX_RESULT_LENGTH.
+ */
+const serializeResult = (fields: {
+  url: string;
+  reason?: string;
+  content: string;
+  jsonContent?: unknown;
+  notes?: string[];
+}): string => {
+  const { url, reason, content, jsonContent, notes } = fields;
+
+  const buildResult = (body: unknown, truncated: boolean) =>
+    JSON.stringify(
+      {
+        success: true,
+        url,
+        reason: reason || "Not specified",
+        contentLength: content.length,
+        truncated,
+        ...(notes && notes.length > 0 ? { notes } : {}),
+        // For JSON responses, include the parsed object directly to avoid double-stringification
+        // For HTML/text responses, include the extracted text
+        content: body,
+      },
+      null,
+      2
+    );
+
+  let result = buildResult(jsonContent ?? content, false);
+  if (result.length > MAX_RESULT_LENGTH) {
+    const truncationNotice = "\n\n[Content truncated due to length...]";
+    const overhead = buildResult(truncationNotice, true).length;
+    let keep = Math.max(0, MAX_RESULT_LENGTH - overhead);
+    result = buildResult(content.substring(0, keep) + truncationNotice, true);
+    // JSON escaping can expand the content, so shave further until it fits
+    while (result.length > MAX_RESULT_LENGTH && keep > 0) {
+      keep = Math.floor(keep * 0.9);
+      result = buildResult(content.substring(0, keep) + truncationNotice, true);
+    }
+  }
+  return result;
+};
+
 export const fetchUrlTool: QPTool = {
   toolFunction: {
     name: "fetch_url",
     description:
-      "Fetch content from an external URL to retrieve information. Use this tool when you need to get data from a scientific article, publication, or other external resource. The content will be returned as text that you can then analyze to extract relevant metadata.",
+      "Fetch content from an external URL to retrieve information. Use this tool when you need to get data from a scientific article, publication, or other external resource. Publication links (doi.org, PubMed, bioRxiv, medRxiv) are resolved through OpenAlex and Europe PMC and return structured metadata, the abstract, and open-access full text when available; prefer these over journal landing pages. Other web pages can only be fetched when the deployment has a CORS proxy configured.",
     parameters: {
       type: "object",
       properties: {
         url: {
           type: "string",
           description:
-            "The URL to fetch content from. Must be a valid URL from an allowed domain (scientific publications, DOI resolvers, etc.).",
+            "The URL to fetch content from. Must be a valid URL from an allowed domain (scientific publications, DOI resolvers, etc.). DOI, PubMed, bioRxiv and medRxiv links work in every deployment.",
         },
         reason: {
           type: "string",
@@ -108,40 +322,57 @@ export const fetchUrlTool: QPTool = {
       };
     }
 
-    try {
-      // Some APIs support CORS natively, so we can fetch directly
-      // For others, we need to use a CORS proxy
-      const corsEnabledDomains = [
-        "api.openalex.org",
-        "api.crossref.org",
-        "api.ror.org",
-        "ebi.ac.uk",
-        "europepmc.org",
-      ];
+    // Publications are resolved through CORS-enabled APIs rather than the page itself
+    const publication = identifyPublication(parsedUrl);
+    if (publication) {
+      try {
+        const { content, notes } = await fetchPublication(publication);
+        if (!content) {
+          return {
+            result: JSON.stringify({
+              success: false,
+              error: `Could not resolve this publication through OpenAlex or Europe PMC. ${notes.join(" ")}`,
+              url,
+            }),
+          };
+        }
+        return { result: serializeResult({ url, reason, content, notes }) };
+      } catch (error) {
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: `Error resolving publication: ${error instanceof Error ? error.message : "Unknown error"}`,
+            url,
+          }),
+        };
+      }
+    }
 
+    try {
       const hostname = parsedUrl.hostname.toLowerCase();
-      const needsProxy = !corsEnabledDomains.some(
-        (domain) => hostname === domain || hostname.endsWith("." + domain)
-      );
 
       // For OpenAlex works API, automatically add select parameter to reduce response size
       let finalUrl = url;
       if (hostname === "api.openalex.org" && parsedUrl.pathname.startsWith("/works") && !parsedUrl.search.includes("select=")) {
         const separator = parsedUrl.search ? "&" : "?";
-        // Select only fields useful for metadata extraction
-        finalUrl = `${url}${separator}select=id,doi,title,display_name,authorships,publication_year,publication_date,funders,keywords`;
+        finalUrl = `${url}${separator}select=${OPENALEX_WORK_SELECT}`;
       }
 
-      const fetchUrl = needsProxy
-        ? `https://corsproxy.io/?${encodeURIComponent(finalUrl)}`
-        : finalUrl;
-
-      const response = await fetch(fetchUrl, {
-        method: "GET",
-        headers: {
-          Accept: "application/json,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-      });
+      let response: Response;
+      try {
+        response = await fetchPage(finalUrl);
+      } catch (error) {
+        if (getProxiedUrl(finalUrl)) {
+          throw error;
+        }
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: `Could not fetch "${parsedUrl.hostname}" from the browser: the site does not send CORS headers and this deployment has no CORS proxy configured (VITE_CORS_PROXY_URL is unset). DOI, PubMed, bioRxiv and medRxiv links can still be fetched, so if this page has a DOI or PubMed entry, try that URL instead, or ask the user to paste the relevant text.`,
+            url,
+          }),
+        };
+      }
 
       if (!response.ok) {
         return {
@@ -167,41 +398,7 @@ export const fetchUrlTool: QPTool = {
         content = extractTextFromHtml(html);
       }
 
-      // OpenRouter rejects messages over 100000 characters, and the JSON wrapper
-      // below adds indentation and escaping overhead, so cap the final serialized
-      // result well below that limit rather than the raw content length.
-      const maxResultLength = 80000;
-
-      const buildResult = (body: unknown, truncated: boolean) =>
-        JSON.stringify(
-          {
-            success: true,
-            url,
-            reason: reason || "Not specified",
-            contentLength: content.length,
-            truncated,
-            // For JSON responses, include the parsed object directly to avoid double-stringification
-            // For HTML/text responses, include the extracted text
-            content: body,
-          },
-          null,
-          2
-        );
-
-      let result = buildResult(jsonContent ?? content, false);
-      if (result.length > maxResultLength) {
-        const truncationNotice = "\n\n[Content truncated due to length...]";
-        const overhead = buildResult(truncationNotice, true).length;
-        let keep = Math.max(0, maxResultLength - overhead);
-        result = buildResult(content.substring(0, keep) + truncationNotice, true);
-        // JSON escaping can expand the content, so shave further until it fits
-        while (result.length > maxResultLength && keep > 0) {
-          keep = Math.floor(keep * 0.9);
-          result = buildResult(content.substring(0, keep) + truncationNotice, true);
-        }
-      }
-
-      return { result };
+      return { result: serializeResult({ url, reason, content, jsonContent }) };
     } catch (error) {
       return {
         result: JSON.stringify({
@@ -223,6 +420,14 @@ export const fetchUrlTool: QPTool = {
 - Provide the URL you want to fetch
 - Optionally explain why you need to fetch it
 
+**Publication links (work in every deployment):**
+- doi.org / dx.doi.org links, PubMed links (pubmed.ncbi.nlm.nih.gov/<pmid>), and bioRxiv / medRxiv pages are not fetched as web pages. They are resolved through OpenAlex (structured metadata: title, authors, dates, funders, keywords) and Europe PMC (abstract, and full text for open-access papers).
+- When a user gives you a journal landing page, prefer its DOI link if you know it; the DOI route returns cleaner data than the page.
+
+**Other pages (need a configured CORS proxy):**
+- Journal sites, GitHub, Wikipedia and similar pages are fetched directly when the site permits it, otherwise through the proxy configured by the deployment. If no proxy is configured, the tool returns an error saying so; in that case suggest a DOI or PubMed link, or ask the user to paste the relevant text.
+- APIs that send CORS headers (OpenAlex, Crossref, ROR, EBI, Europe PMC) are fetched directly.
+
 **Allowed domains:**
 This tool only works with approved scientific/academic domains including:
 - Scientific journals (eLife, Nature, Science, Cell, PNAS, PLOS, etc.)
@@ -232,12 +437,13 @@ This tool only works with approved scientific/academic domains including:
 - GitHub, DANDI Archive, Wikipedia
 
 **Examples:**
-- Fetch an eLife article: { "url": "https://elifesciences.org/articles/78362", "reason": "To extract metadata for the dandiset" }
 - Resolve a DOI: { "url": "https://doi.org/10.7554/eLife.78362", "reason": "To get publication details" }
+- Resolve a PubMed entry: { "url": "https://pubmed.ncbi.nlm.nih.gov/36193886/", "reason": "To get the abstract" }
+- Fetch an eLife article page (requires a proxy): { "url": "https://elifesciences.org/articles/78362", "reason": "To extract metadata for the dandiset" }
 
 **Notes:**
-- Content is returned as text extracted from the webpage
-- Very long content will be truncated
+- Content is returned as text extracted from the webpage or API responses
+- Very long content will be truncated; metadata and abstract come before full text so they survive truncation
 - If fetching fails, an error message will explain why
 - Always verify the fetched content before using it to propose metadata changes`;
   },

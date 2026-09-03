@@ -155,20 +155,6 @@ export function deltaToChanges(delta: Delta | undefined, basePath: string = ''):
 }
 
 /**
- * Compute the differences between two metadata objects.
- * Returns an array of MetadataChange objects for backwards compatibility.
- * 
- * @deprecated Use computeDelta() for new code
- */
-export function computeDiff(original: any, modified: any): MetadataChange[] {
-  // sort keys
-  const originalCanonical = JSON.parse(JSON.stringify(original, Object.keys(original).sort()));
-  const modifiedCanonical = JSON.parse(JSON.stringify(modified, Object.keys(modified).sort()));
-  const delta = computeDelta(originalCanonical, modifiedCanonical);
-  return deltaToChanges(delta);
-}
-
-/**
  * Format a value for display in the changes summary.
  * Truncates long strings and formats objects/arrays.
  */
