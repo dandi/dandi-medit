@@ -14,7 +14,7 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import LockIcon from '@mui/icons-material/Lock';
-import { useMetadataContext } from '../../context/MetadataContext';
+import { useMetadataContext } from '../../context/useMetadataContext';
 
 function formatDate(dateString: string | null | undefined): string {
   if (!dateString) return '—';

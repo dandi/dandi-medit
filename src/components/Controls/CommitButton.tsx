@@ -4,7 +4,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import LockIcon from '@mui/icons-material/Lock';
 import LinkIcon from '@mui/icons-material/Link';
-import { useMetadataContext } from '../../context/MetadataContext';
+import { useMetadataContext } from '../../context/useMetadataContext';
 import { commitMetadataChanges, fetchDandisetVersionInfo, checkUserIsOwner } from '../../utils/api';
 import { createProposalLink } from '../../core/proposalLink';
 import type { DandisetMetadata } from '../../types/dandiset';
@@ -57,10 +57,10 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
     }
 
     checkOwnership();
-  }, [apiKey, dandisetId]);
+  }, [apiKey, dandisetId, dandiApiBase]);
 
   const handleCommit = async () => {
-    if (!apiKey || !versionInfo || !dandisetId || !version) {
+    if (!apiKey || !versionInfo || !dandisetId || !version || !modifiedMetadata) {
       return;
     }
 
