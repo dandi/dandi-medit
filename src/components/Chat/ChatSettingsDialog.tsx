@@ -30,6 +30,84 @@ interface ChatSettingsDialogProps {
   onModelChange: (model: string) => void;
 }
 
+interface ModelAutocompleteProps {
+  currentModel: string;
+  onModelChange: (model: string) => void;
+}
+
+// Rendered inside the dialog content, so it is remounted every time the dialog
+// is opened and the displayed value starts from the active model again.
+const ModelAutocomplete: FunctionComponent<ModelAutocompleteProps> = ({
+  currentModel,
+  onModelChange,
+}) => {
+  const [inputValue, setInputValue] = useState<string>(currentModel);
+
+  const commitInputValue = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setInputValue(currentModel);
+      return;
+    }
+    setInputValue(trimmed);
+    if (trimmed !== currentModel) onModelChange(trimmed);
+  };
+
+  return (
+    <Autocomplete
+      freeSolo
+      options={AVAILABLE_MODELS.map((m) => m.model)}
+      value={currentModel}
+      inputValue={inputValue}
+      onChange={(_e, newValue) => {
+        if (newValue !== null) commitInputValue(newValue);
+      }}
+      onInputChange={(_e, newValue) => {
+        setInputValue(newValue);
+      }}
+      renderOption={(props, option) => {
+        const model = AVAILABLE_MODELS.find((m) => m.model === option);
+        const isCheap = CHEAP_MODELS.includes(option);
+        return (
+          <li {...props} key={option}>
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                width: "100%",
+                alignItems: "center",
+              }}
+            >
+              <span>{model?.label ?? option}</span>
+              <Typography
+                variant="caption"
+                sx={{
+                  ml: 2,
+                  color: isCheap ? "success.main" : "warning.main",
+                }}
+              >
+                {isCheap
+                  ? "Free"
+                  : model
+                    ? `$${model.cost.prompt}/$${model.cost.completion} per 1M tokens`
+                    : "Custom"}
+              </Typography>
+            </Box>
+          </li>
+        );
+      }}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          label="AI Model"
+          placeholder="Select or type an OpenRouter model ID"
+          onBlur={() => commitInputValue(inputValue)}
+        />
+      )}
+    />
+  );
+};
+
 const ChatSettingsDialog: FunctionComponent<ChatSettingsDialogProps> = ({
   open,
   onClose,
@@ -70,54 +148,9 @@ const ChatSettingsDialog: FunctionComponent<ChatSettingsDialogProps> = ({
       <DialogContent>
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3, pt: 1 }}>
           {/* Model Selection */}
-          <Autocomplete
-            freeSolo
-            options={AVAILABLE_MODELS.map((m) => m.model)}
-            value={currentModel}
-            onChange={(_e, newValue) => {
-              if (newValue) onModelChange(newValue);
-            }}
-            onInputChange={(_e, newValue, reason) => {
-              if (reason === "input" && newValue) onModelChange(newValue);
-            }}
-            renderOption={(props, option) => {
-              const model = AVAILABLE_MODELS.find((m) => m.model === option);
-              const isCheap = CHEAP_MODELS.includes(option);
-              return (
-                <li {...props} key={option}>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      width: "100%",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span>{model?.label ?? option}</span>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        ml: 2,
-                        color: isCheap ? "success.main" : "warning.main",
-                      }}
-                    >
-                      {isCheap
-                        ? "Free"
-                        : model
-                          ? `$${model.cost.prompt}/$${model.cost.completion} per 1M tokens`
-                          : "Custom"}
-                    </Typography>
-                  </Box>
-                </li>
-              );
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="AI Model"
-                placeholder="Select or type an OpenRouter model ID"
-              />
-            )}
+          <ModelAutocomplete
+            currentModel={currentModel}
+            onModelChange={onModelChange}
           />
 
           {/* Model Info */}
