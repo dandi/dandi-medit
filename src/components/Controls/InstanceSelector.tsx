@@ -1,6 +1,6 @@
 import { Select, MenuItem, FormControl, Typography, type SelectChangeEvent } from '@mui/material';
 import { DANDI_INSTANCES } from '../../utils/dandiInstances';
-import { useMetadataContext } from '../../context/MetadataContext';
+import { useMetadataContext } from '../../context/useMetadataContext';
 
 interface InstanceSelectorProps {
   locked?: boolean;

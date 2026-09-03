@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getReadOnlyFieldsSync } from "../../schemas/schemaService";
 import { QPTool, ToolExecutionContext, MetadataOperationType } from "../types";
-import { validateIdentifierInValue } from "./validateUrls";
+import { validateIdentifierInValue, normalizeOrcid } from "./validateUrls";
 
 interface SingleChange {
   operation: MetadataOperationType;
@@ -112,6 +112,21 @@ export const proposeMetadataChangeTool: QPTool = {
   ) => {
     const { explanation } = params;
     const readOnlyFields = getReadOnlyFieldsSync();
+
+    // The schema stores ORCIDs as the bare identifier, so reduce any orcid.org
+    // URL to that form before the value is validated and applied.
+    const normalizeOrcidInValue = (path: string, value: any): any => {
+      if (typeof value === "string" && /contributor\.\d+\.identifier$/.test(path)) {
+        return normalizeOrcid(value);
+      }
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const obj = value as Record<string, any>;
+        if (obj.schemaKey === "Person" && typeof obj.identifier === "string") {
+          return { ...obj, identifier: normalizeOrcid(obj.identifier) };
+        }
+      }
+      return value;
+    };
     const validOperations: MetadataOperationType[] = ['set', 'delete', 'insert', 'append'];
 
     // Build the list of changes to apply
@@ -139,7 +154,8 @@ export const proposeMetadataChangeTool: QPTool = {
 
     for (let i = 0; i < changes.length; i++) {
       const change = changes[i];
-      const { operation = 'set', path, value } = change;
+      const { operation = 'set', path } = change;
+      const value = normalizeOrcidInValue(path, change.value);
 
       // Validate operation
       if (!validOperations.includes(operation)) {
