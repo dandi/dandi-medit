@@ -8,6 +8,7 @@ import { fetchUrlTool } from "./tools/fetchUrl";
 import { lookupOntologyTermTool } from "./tools/lookupOntologyTerm";
 import { fetchSchema } from "../schemas/schemaService";
 import { parseSuggestions } from "./parseSuggestions";
+import { getStoredModel, setStoredModel } from "./apiKeyStorage";
 import { computeDelta, deltaToChanges, formatValue } from "../core/metadataDiff";
 import { parseCompletionStream } from "./parseCompletionStream";
 import { COMPLETION_URL, buildCompletionHeaders } from "./completionApi";
@@ -94,6 +95,14 @@ const emptyChat: Chat = {
   model: DEFAULT_MODEL,
 };
 
+const getInitialModel = (): string => {
+  const storedModel = getStoredModel();
+  if (storedModel && AVAILABLE_MODELS.some((m) => m.model === storedModel)) {
+    return storedModel;
+  }
+  return DEFAULT_MODEL;
+};
+
 const chatReducer = (state: Chat, action: ChatAction): Chat => {
   switch (action.type) {
     case "add_message":
@@ -119,7 +128,7 @@ const chatReducer = (state: Chat, action: ChatAction): Chat => {
         },
       };
     case "clear":
-      return emptyChat;
+      return { ...emptyChat, model: state.model };
     case "revert_to_index":
       return {
         ...state,
@@ -181,7 +190,10 @@ const convertConversationToPlainText = (messages: ChatMessage[]): string => {
 const useChat = (options: UseChatOptions) => {
   const { originalMetadata, modifiedMetadata, modifyMetadata, dandisetId, version, versionInfo } = options;
 
-  const [chat, setChat] = useState<Chat>(emptyChat);
+  const [chat, setChat] = useState<Chat>(() => ({
+    ...emptyChat,
+    model: getInitialModel(),
+  }));
   const [responding, setResponding] = useState<boolean>(false);
   const [compressing, setCompressing] = useState<boolean>(false);
   const [partialResponse, setPartialResponse] = useState<ChatMessage[] | null>(null);
@@ -513,6 +525,7 @@ ${pendingChanges}
   }, []);
 
   const setChatModel = useCallback((newModel: string) => {
+    setStoredModel(newModel);
     setChat((prev) => chatReducer(prev, { type: "set_model", model: newModel }));
   }, []);
 
@@ -522,7 +535,7 @@ ${pendingChanges}
       abortControllerRef.current.abort();
     }
     setMessageQueue([]);
-    setChat(emptyChat);
+    setChat((prev) => ({ ...emptyChat, model: prev.model }));
     setError(null);
     setPartialResponse(null);
     setResponding(false);
