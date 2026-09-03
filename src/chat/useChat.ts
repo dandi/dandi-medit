@@ -708,6 +708,7 @@ ${JSON.stringify(modifiedMetadata, null, 2)}
 `;
       const suggestionsChat: Chat = {
         ...emptyChat,
+        model: chat.model,
         messages: [
           {
             role: "user",
@@ -750,7 +751,7 @@ ${JSON.stringify(modifiedMetadata, null, 2)}
     } finally {
       setLoadingInitialSuggestions(false);
     }
-  }, [originalMetadata, modifiedMetadata, dandisetId, version]);
+  }, [originalMetadata, modifiedMetadata, dandisetId, version, chat.model]);
 
   // Trigger initial suggestions fetch when metadata is available
   useEffect(() => {
