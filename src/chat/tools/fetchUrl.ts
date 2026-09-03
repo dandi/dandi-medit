@@ -1,4 +1,5 @@
 import { QPTool, ToolExecutionContext } from "../types";
+import allowedDomains from "./allowedDomains.json";
 import { getProxiedUrl } from "../../utils/corsProxy";
 
 /**
@@ -13,42 +14,9 @@ import { getProxiedUrl } from "../../utils/corsProxy";
  * configured with VITE_CORS_PROXY_URL.
  */
 
-// List of allowed domains to prevent misuse
-const ALLOWED_DOMAINS = [
-  "elifesciences.org",
-  "doi.org",
-  "pubmed.ncbi.nlm.nih.gov",
-  "ncbi.nlm.nih.gov",
-  "biorxiv.org",
-  "medrxiv.org",
-  "arxiv.org",
-  "nature.com",
-  "science.org",
-  "cell.com",
-  "pnas.org",
-  "plos.org",
-  "frontiersin.org",
-  "springer.com",
-  "wiley.com",
-  "sciencedirect.com",
-  "nih.gov",
-  "github.com",
-  "dandiarchive.org",
-  "wikipedia.org",
-  "crossref.org",
-  // Ontology services
-  "ebi.ac.uk",
-  "ontobee.org",
-  "purl.obolibrary.org",
-  "obofoundry.org",
-  "identifiers.org",
-  "cognitiveatlas.org",
-  // Academic APIs
-  "openalex.org",
-  "ror.org",
-  "europepmc.org",
-  "orcid.org",
-];
+// Domains fetch_url may retrieve. The list is shared with the CORS proxy
+// worker in proxy/, which enforces the same allowlist server side.
+const ALLOWED_DOMAINS: string[] = allowedDomains;
 
 // Fields useful for metadata extraction; keeps OpenAlex responses small
 const OPENALEX_WORK_SELECT =
