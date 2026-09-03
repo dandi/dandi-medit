@@ -11,6 +11,8 @@ import {
   Tooltip,
   Divider,
   Link,
+  Alert,
+  Snackbar,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -692,6 +694,7 @@ function SectionDisplay({
   revertField,
   onEditField,
   modifyMetadata,
+  onError,
 }: {
   section: SectionDef;
   modifiedMetadata: Record<string, unknown>;
@@ -700,6 +703,7 @@ function SectionDisplay({
   revertField: (key: string) => void;
   onEditField: (key: string, value: unknown) => { success: boolean; error?: string };
   modifyMetadata: (operation: MetadataOperationType, path: string, value?: unknown) => { success: boolean; error?: string };
+  onError: (message: string) => void;
 }) {
   const SectionIcon = section.icon;
   
@@ -792,7 +796,10 @@ function SectionDisplay({
                     </Typography>
                     <EditableKeywordsList
                       value={value as string[]}
-                      onSave={(newValue) => onEditField(field.key, newValue)}
+                      onSave={(newValue) => {
+                        const result = onEditField(field.key, newValue);
+                        if (!result.success) onError(result.error ?? 'Failed to update keywords');
+                      }}
                     />
                     {modified && (
                       <>
@@ -850,7 +857,10 @@ function SectionDisplay({
                     </Typography>
                     <EditableLicenseSelect
                       value={licenseValues}
-                      onSave={(newValue) => onEditField(field.key, newValue)}
+                      onSave={(newValue) => {
+                        const result = onEditField(field.key, newValue);
+                        if (!result.success) onError(result.error ?? 'Failed to update license');
+                      }}
                     />
                     {modified && (
                       <>
@@ -949,7 +959,7 @@ function SectionDisplay({
                     changedPaths={changedPaths}
                     onDelete={(idx) => {
                       const result = modifyMetadata('delete', `${field.key}.${idx}`);
-                      if (!result.success) console.error('Delete failed:', result.error);
+                      if (!result.success) onError(result.error ?? 'Failed to delete item');
                     }}
                     onMoveUp={(idx) => {
                       if (idx <= 0) return;
@@ -957,7 +967,7 @@ function SectionDisplay({
                       const [item] = arr.splice(idx, 1);
                       arr.splice(idx - 1, 0, item);
                       const result = modifyMetadata('set', field.key, arr);
-                      if (!result.success) console.error('Move up failed:', result.error);
+                      if (!result.success) onError(result.error ?? 'Failed to move item up');
                     }}
                     onMoveDown={(idx) => {
                       const arr = [...(value as unknown[])];
@@ -965,7 +975,7 @@ function SectionDisplay({
                       const [item] = arr.splice(idx, 1);
                       arr.splice(idx + 1, 0, item);
                       const result = modifyMetadata('set', field.key, arr);
-                      if (!result.success) console.error('Move down failed:', result.error);
+                      if (!result.success) onError(result.error ?? 'Failed to move item down');
                     }}
                   />
                 </Box>
@@ -999,6 +1009,7 @@ function SectionDisplay({
  */
 export function EditableMetadataView() {
   const { originalMetadata, modifiedMetadata, revertField, modifyMetadata } = useMetadataContext();
+  const [editError, setEditError] = useState<string | null>(null);
   
   // Compute changed paths
   const changedPaths = useMemo(() => {
@@ -1088,8 +1099,26 @@ export function EditableMetadataView() {
           revertField={revertField}
           onEditField={handleEditField}
           modifyMetadata={modifyMetadata}
+          onError={setEditError}
         />
       ))}
+
+      {/* Error snackbar for rejected edits */}
+      <Snackbar
+        open={!!editError}
+        autoHideDuration={10000}
+        onClose={() => setEditError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setEditError(null)}
+          severity="error"
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {editError}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
