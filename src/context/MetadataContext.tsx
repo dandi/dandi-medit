@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ModifyMetadataResult } from '../chat/types';
 import {
   applyOperation,
@@ -7,6 +7,7 @@ import {
   removeValueAtPath,
   type MetadataOperationType
 } from '../core/metadataOperations';
+import { hasDifferences } from '../core/metadataDiff';
 import { loadSchemaForInstance } from '../schemas/schemaService';
 import { formatValidationErrors, validateFullMetadata } from '../schemas/validateMetadata';
 import type { DandisetMetadata, DandisetVersionInfo } from '../types/dandiset';
@@ -144,6 +145,12 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
     }
   }, [originalMetadata]);
 
+  const effectiveMetadata = modifiedMetadata || originalMetadata;
+  const hasChanges = useMemo(
+    () => hasDifferences(originalMetadata, effectiveMetadata),
+    [originalMetadata, effectiveMetadata]
+  );
+
   const setOriginalMetadata1 = useCallback((metadata: DandisetMetadata | null) => {
     setOriginalMetadata(metadata);
     modifiedMetadataRef.current = null; // Reset modifications when loading new metadata
@@ -175,9 +182,10 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
     dandiApiBase: dandiInstance.apiUrl,
     urlInstanceError: initialInstanceStatus.urlInstanceError,
     originalMetadata,
-    modifiedMetadata: modifiedMetadata || originalMetadata,
+    modifiedMetadata: effectiveMetadata,
     setOriginalMetadata: setOriginalMetadata1,
     setModifiedMetadata: setModifiedMetadata1,
+    hasChanges,
     clearModifications
   };
 

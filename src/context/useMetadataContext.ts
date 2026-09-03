@@ -40,6 +40,9 @@ export interface MetadataContextType {
   setOriginalMetadata: (metadata: DandisetMetadata | null) => void;
   setModifiedMetadata: (metadata: DandisetMetadata | null) => void;
 
+  // Whether modifiedMetadata differs from originalMetadata
+  hasChanges: boolean;
+
   clearModifications: () => void;
 
   // Metadata modification functions
