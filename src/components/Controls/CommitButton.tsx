@@ -24,6 +24,7 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
     originalMetadata,
     modifiedMetadata,
     hasChanges,
+    setOriginalMetadata,
     clearModifications,
     dandiApiBase,
   } = useMetadataContext();
@@ -33,6 +34,7 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
   const [commitSuccess, setCommitSuccess] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState<boolean | null>(null);
 
   const canCommit = hasChanges && !!apiKey && !!versionInfo && isOwner === true;
@@ -69,8 +71,10 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
       // Commit the changes directly to the DANDI API
       await commitMetadataChanges(dandisetId, version, modifiedMetadata, apiKey, dandiApiBase);
 
-      // Success! Clear pending changes
-      clearModifications();
+      // Success! The committed metadata is now the local original, so the
+      // panel keeps showing what was just committed (this also resets the
+      // pending modifications).
+      setOriginalMetadata(modifiedMetadata);
       setCommitSuccess(true);
 
       // Refresh the version info to get the latest state
@@ -80,7 +84,8 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
         setVersionInfo(updatedInfo);
       } catch (refreshError) {
         console.warn('Failed to refresh version info after commit:', refreshError);
-        // Don't show error to user - commit was successful
+        // The commit itself succeeded, so warn without blocking.
+        setRefreshWarning('Changes were committed, but the page could not be refreshed with the latest server copy.');
       } finally {
         setIsLoading(false);
       }
@@ -253,6 +258,23 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
           sx={{ width: '100%' }}
         >
           Proposal link copied to clipboard!
+        </Alert>
+      </Snackbar>
+
+      {/* Refresh warning snackbar */}
+      <Snackbar
+        open={!!refreshWarning}
+        autoHideDuration={10000}
+        onClose={() => setRefreshWarning(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setRefreshWarning(null)}
+          severity="warning"
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {refreshWarning}
         </Alert>
       </Snackbar>
 

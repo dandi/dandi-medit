@@ -31,8 +31,9 @@ export async function fetchDandisets(options: {
   page?: number;
   pageSize?: number;
   dandiApiBase: string;
+  signal?: AbortSignal;
 }): Promise<DandisetsPage> {
-  const { apiKey, onlyMine = false, hideEmpty = false, order = '-modified', page = 1, pageSize = 25, dandiApiBase } = options;
+  const { apiKey, onlyMine = false, hideEmpty = false, order = '-modified', page = 1, pageSize = 25, dandiApiBase, signal } = options;
   const params = new URLSearchParams({
     order,
     page: String(page),
@@ -51,7 +52,7 @@ export async function fetchDandisets(options: {
     headers['Authorization'] = `token ${apiKey}`;
   }
 
-  const response = await fetch(`${dandiApiBase}/dandisets/?${params}`, { headers });
+  const response = await fetch(`${dandiApiBase}/dandisets/?${params}`, { headers, signal });
 
   if (!response.ok) {
     if (response.status === 401) {

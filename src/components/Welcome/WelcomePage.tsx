@@ -81,6 +81,8 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
     // "My dandisets" requires an API key
     if (onlyMine && !apiKey) return;
 
+    const controller = new AbortController();
+
     setIsLoadingDandisets(true);
     fetchDandisets({
       apiKey,
@@ -90,26 +92,46 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
       page,
       pageSize: PAGE_SIZE,
       dandiApiBase,
+      signal: controller.signal,
     })
       .then(({ results, count }) => {
+        if (controller.signal.aborted) return;
         setDandisets(results);
         setTotalCount(count);
         setError(null);
       })
       .catch((err) => {
+        if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : 'Failed to fetch dandisets');
         setDandisets([]);
         setTotalCount(0);
       })
       .finally(() => {
+        if (controller.signal.aborted) return;
         setIsLoadingDandisets(false);
       });
+
+    return () => {
+      controller.abort();
+    };
   }, [apiKey, dandiApiBase, sortOrder, onlyMine, hideEmpty, page, setError]);
 
-  // Reset to page 1 when filters change
-  useEffect(() => {
+  // Filter changes also send the list back to the first page, so that the
+  // change results in a single request rather than one per state update.
+  const changeSortOrder = (order: DandisetSortOrder) => {
+    setSortOrder(order);
     setPage(1);
-  }, [sortOrder, onlyMine, hideEmpty]);
+  };
+
+  const changeOnlyMine = (checked: boolean) => {
+    setOnlyMine(checked);
+    setPage(1);
+  };
+
+  const changeHideEmpty = (checked: boolean) => {
+    setHideEmpty(checked);
+    setPage(1);
+  };
 
   const handleSaveApiKey = async () => {
     const trimmed = localApiKey.trim();
@@ -128,7 +150,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
     }
   };
 
-  const handleApiKeyKeyPress = (e: React.KeyboardEvent) => {
+  const handleApiKeyKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSaveApiKey();
     }
@@ -162,7 +184,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
     handleLoadDandiset(localDandisetId);
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleManualLoad();
     }
@@ -220,7 +242,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
               type={showApiKey ? 'text' : 'password'}
               value={localApiKey}
               onChange={(e) => setLocalApiKey(e.target.value)}
-              onKeyPress={handleApiKeyKeyPress}
+              onKeyDown={handleApiKeyKeyDown}
               fullWidth
               size="small"
               placeholder="Enter API key to see your dandisets and commit changes"
@@ -269,7 +291,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
             placeholder="e.g., 000003"
             value={localDandisetId}
             onChange={(e) => setLocalDandisetId(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             size="small"
             fullWidth
             disabled={isLoading}
@@ -301,7 +323,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
             control={
               <Checkbox
                 checked={hideEmpty}
-                onChange={(e) => setHideEmpty(e.target.checked)}
+                onChange={(e) => changeHideEmpty(e.target.checked)}
                 size="small"
               />
             }
@@ -313,7 +335,7 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
               control={
                 <Checkbox
                   checked={onlyMine}
-                  onChange={(e) => setOnlyMine(e.target.checked)}
+                  onChange={(e) => changeOnlyMine(e.target.checked)}
                   size="small"
                 />
               }
@@ -341,8 +363,8 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
                       active={sortOrder === 'id' || sortOrder === '-id'}
                       direction={sortOrder === '-id' ? 'desc' : 'asc'}
                       onClick={() => {
-                        if (sortOrder === 'id') setSortOrder('-id');
-                        else setSortOrder('id');
+                        if (sortOrder === 'id') changeSortOrder('-id');
+                        else changeSortOrder('id');
                       }}
                     >
                       ID
@@ -354,8 +376,8 @@ export function WelcomePage({ onDandisetLoaded }: WelcomePageProps) {
                       active={sortOrder === 'modified' || sortOrder === '-modified'}
                       direction={sortOrder === '-modified' ? 'desc' : 'asc'}
                       onClick={() => {
-                        if (sortOrder === '-modified') setSortOrder('modified');
-                        else setSortOrder('-modified');
+                        if (sortOrder === '-modified') changeSortOrder('modified');
+                        else changeSortOrder('-modified');
                       }}
                     >
                       Modified
