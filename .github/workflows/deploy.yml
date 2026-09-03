@@ -40,6 +40,10 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # Optional CORS proxy template for fetch_url, see .env.example.
+          # Baked into the public bundle at build time, so treat it as public.
+          VITE_CORS_PROXY_URL: ${{ secrets.VITE_CORS_PROXY_URL }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
