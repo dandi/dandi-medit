@@ -7,6 +7,7 @@ import {
   removeValueAtPath,
   type MetadataOperationType
 } from '../core/metadataOperations';
+import { loadSchemaForInstance } from '../schemas/schemaService';
 import { formatValidationErrors, validateFullMetadata } from '../schemas/validateMetadata';
 import type { DandisetMetadata, DandisetVersionInfo } from '../types/dandiset';
 import {
@@ -53,6 +54,13 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setModifiedMetadata(modifiedMetadataRef.current);
   }, [metadataRefreshCode]);
+
+  // Load the dandiset schema served by the selected instance so validation and
+  // readOnly protection match what that instance expects. The bundled schema
+  // is used until it arrives, or if the request fails.
+  useEffect(() => {
+    void loadSchemaForInstance(dandiInstance.apiUrl);
+  }, [dandiInstance.apiUrl]);
 
   const setApiKey = useCallback((key: string | null, storageType: StorageType = 'session') => {
     if (key) {
