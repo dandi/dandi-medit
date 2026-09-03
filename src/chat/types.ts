@@ -41,6 +41,9 @@ export type ChatMessage =
         completionTokens: number;
         estimatedCost: number;
       };
+      // Status-only messages that are shown while a response is in progress but
+      // should never become part of the persisted chat history.
+      transient?: boolean;
     }
   | {
       role: "tool";

@@ -447,6 +447,11 @@ ${pendingChanges}
         {
           let updatedChat = currentChat;
           for (const msg of partialResponseLocal) {
+            // Status-only messages (for example the rate limit countdown) are
+            // not part of the conversation, so we drop them here.
+            if (msg.role === "assistant" && msg.transient) {
+              continue;
+            }
             updatedChat = chatReducer(updatedChat, {
               type: "add_message",
               message: msg,
