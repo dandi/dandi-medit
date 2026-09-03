@@ -1,12 +1,14 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ModifyMetadataResult } from '../chat/types';
 import {
   applyOperation,
   getValueAtPath,
   normalizePath,
+  removeValueAtPath,
   type MetadataOperationType
 } from '../core/metadataOperations';
+import { hasDifferences } from '../core/metadataDiff';
+import { loadSchemaForInstance } from '../schemas/schemaService';
 import { findNewValidationErrors, formatValidationErrors, validateFullMetadata } from '../schemas/validateMetadata';
 import type { DandisetMetadata, DandisetVersionInfo } from '../types/dandiset';
 import {
@@ -20,50 +22,7 @@ import {
   getInitialInstanceWithStatus,
   setStoredInstance,
 } from '../utils/dandiInstances';
-
-interface MetadataContextType {
-  // Current dandiset info
-  dandisetId: string;
-  setDandisetId: (id: string) => void;
-  version: string;
-  setVersion: (version: string) => void;
-
-  // Loaded data
-  versionInfo: DandisetVersionInfo | null;
-  setVersionInfo: (info: DandisetVersionInfo | null) => void;
-
-  // Loading state
-  isLoading: boolean;
-  setIsLoading: (loading: boolean) => void;
-  error: string | null;
-  setError: (error: string | null) => void;
-
-  // API Key
-  apiKey: string | null;
-  setApiKey: (key: string | null, storageType?: StorageType) => void;
-
-  // DANDI instance
-  dandiInstance: DandiInstance;
-  setDandiInstance: (instance: DandiInstance) => void;
-  dandiApiBase: string;
-
-  // URL instance mismatch info (set once on init)
-  urlInstanceError: string | null;
-
-  // Get the current metadata with pending changes applied
-  originalMetadata: DandisetMetadata | null;
-  modifiedMetadata: DandisetMetadata | null;
-  setOriginalMetadata: (metadata: DandisetMetadata | null) => void;
-  setModifiedMetadata: (metadata: DandisetMetadata | null) => void;
-
-  clearModifications: () => void;
-
-  // Metadata modification functions
-  modifyMetadata: (operation: MetadataOperationType, path: string, value?: unknown) => ModifyMetadataResult;
-  revertField: (fieldKey: string) => void;
-}
-
-const MetadataContext = createContext<MetadataContextType | undefined>(undefined);
+import { MetadataContext, type MetadataContextType } from './useMetadataContext';
 
 export function MetadataProvider({ children }: { children: ReactNode }) {
   const [dandisetId, setDandisetId] = useState<string>('');
@@ -96,6 +55,13 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setModifiedMetadata(modifiedMetadataRef.current);
   }, [metadataRefreshCode]);
+
+  // Load the dandiset schema served by the selected instance so validation and
+  // readOnly protection match what that instance expects. The bundled schema
+  // is used until it arrives, or if the request fails.
+  useEffect(() => {
+    void loadSchemaForInstance(dandiInstance.apiUrl);
+  }, [dandiInstance.apiUrl]);
 
   const setApiKey = useCallback((key: string | null, storageType: StorageType = 'session') => {
     if (key) {
@@ -160,7 +126,11 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
     if (!originalMetadata || !currentMetadata) return;
 
     const originalValue = getValueAtPath(originalMetadata, fieldKey);
-    const result = applyOperation(currentMetadata, 'set', fieldKey, originalValue);
+    // A field absent from the original metadata was added by the user, so reverting
+    // it means removing the property rather than setting it to undefined.
+    const result = originalValue === undefined
+      ? removeValueAtPath(currentMetadata, fieldKey)
+      : applyOperation(currentMetadata, 'set', fieldKey, originalValue);
 
     if (result.success) {
       const newMetadata = result.data as DandisetMetadata;
@@ -168,6 +138,12 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
       setMetadataRefreshCode((code) => code + 1);
     }
   }, [originalMetadata]);
+
+  const effectiveMetadata = modifiedMetadata || originalMetadata;
+  const hasChanges = useMemo(
+    () => hasDifferences(originalMetadata, effectiveMetadata),
+    [originalMetadata, effectiveMetadata]
+  );
 
   const setOriginalMetadata1 = useCallback((metadata: DandisetMetadata | null) => {
     setOriginalMetadata(metadata);
@@ -200,9 +176,10 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
     dandiApiBase: dandiInstance.apiUrl,
     urlInstanceError: initialInstanceStatus.urlInstanceError,
     originalMetadata,
-    modifiedMetadata: modifiedMetadata || originalMetadata,
+    modifiedMetadata: effectiveMetadata,
     setOriginalMetadata: setOriginalMetadata1,
     setModifiedMetadata: setModifiedMetadata1,
+    hasChanges,
     clearModifications
   };
 
@@ -211,12 +188,4 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
       {children}
     </MetadataContext.Provider>
   );
-}
-
-export function useMetadataContext() {
-  const context = useContext(MetadataContext);
-  if (context === undefined) {
-    throw new Error('useMetadataContext must be used within a MetadataProvider');
-  }
-  return context;
 }
