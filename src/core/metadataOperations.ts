@@ -169,6 +169,44 @@ export function deleteArrayItem(obj: any, path: string): MetadataOperationResult
 }
 
 /**
+ * Remove a property from an object at a dot-notation path.
+ * The last part of the path names the property to delete from its parent object.
+ * If the parent is an array, the removal is delegated to deleteArrayItem.
+ * Returns a new object (does not mutate original).
+ */
+export function removeValueAtPath(obj: any, path: string): MetadataOperationResult {
+  const parts = parsePath(path);
+
+  if (parts.length === 0) {
+    return { success: false, error: 'Path cannot be empty' };
+  }
+
+  const parentPath = parts.slice(0, -1).join('.');
+  const parent = parentPath ? getValueAtPath(obj, parentPath) : obj;
+
+  if (Array.isArray(parent)) {
+    return deleteArrayItem(obj, path);
+  }
+
+  if (parent === null || typeof parent !== 'object') {
+    return { success: false, error: `Cannot remove property from non-object at path "${parentPath || path}"` };
+  }
+
+  // Navigate to the parent within a clone so the original is left untouched
+  const result = deepClone(obj);
+  let current = result;
+
+  for (const part of parts.slice(0, -1)) {
+    const index = parseInt(part, 10);
+    current = !isNaN(index) && Array.isArray(current) ? current[index] : current[part];
+  }
+
+  delete current[parts[parts.length - 1]];
+
+  return { success: true, data: result };
+}
+
+/**
  * Insert an item into an array at a specific index.
  * The last part of the path must be an array index where the item will be inserted.
  * Items at and after the index are shifted right.
