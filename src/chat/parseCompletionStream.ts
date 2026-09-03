@@ -12,94 +12,86 @@ export const parseCompletionStream = async (
   reader: ReadableStreamDefaultReader<Uint8Array>,
   onChunkProcessed?: (assistantContent: string) => void,
 ): Promise<StreamParseResult> => {
-  let done = false;
   let assistantContent = "";
   let toolCalls: ORToolCall[] | undefined = undefined;
 
   let promptTokens = 0;
   let completionTokens = 0;
+
+  // One decoder for the whole stream, used in streaming mode, so that a
+  // multi-byte UTF-8 character split across two chunks is decoded correctly
+  // rather than as replacement characters
+  const decoder = new TextDecoder("utf-8");
+  // Text after the last newline of the most recent chunk, carried over so
+  // that an SSE line spanning a chunk boundary is not lost
   let buffer = "";
+  let finished = false;
 
-  while (!done) {
-    const { value, done: doneReading } = await reader.read();
-    done = doneReading;
-    if (value) {
-      const chunk = new TextDecoder("utf-8").decode(value);
-      const combined = buffer + chunk;
-      const lines = combined.split("\n");
-
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.trim() === "") continue;
-        if (line.startsWith("data: ")) {
-          const data = line.replace("data: ", "").trim();
-          if (data === "[DONE]") {
-            done = true;
-            break;
-          }
-          try {
-            let parsed;
-            try {
-              parsed = JSON.parse(data) as ORResponse;
-            } catch (e) {
-              console.warn(data);
-              throw e;
-            }
-            const choice = parsed.choices[0];
-            if (choice && "delta" in choice) {
-              const delta = choice.delta;
-              if (delta.content) {
-                assistantContent += delta.content;
-                if (onChunkProcessed) {
-                  onChunkProcessed(assistantContent);
-                }
-              }
-              if (delta.tool_calls) {
-                toolCalls = applyDeltaToToolCalls(toolCalls, delta.tool_calls);
-              }
-            }
-            if (parsed.usage) {
-              promptTokens += parsed.usage.prompt_tokens || 0;
-              completionTokens += parsed.usage.completion_tokens || 0;
-            }
-          } catch (e) {
-            console.error("Error parsing chunk:", e);
+  // Handle one complete SSE line. Returns true when the stream signals [DONE].
+  const processLine = (line: string): boolean => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data: ")) return false;
+    const data = trimmed.slice("data: ".length).trim();
+    if (data === "[DONE]") return true;
+    try {
+      let parsed;
+      try {
+        parsed = JSON.parse(data) as ORResponse;
+      } catch (e) {
+        console.warn(data);
+        throw e;
+      }
+      const choice = parsed.choices[0];
+      if (choice && "delta" in choice) {
+        const delta = choice.delta;
+        if (delta.content) {
+          assistantContent += delta.content;
+          if (onChunkProcessed) {
+            onChunkProcessed(assistantContent);
           }
         }
+        if (delta.tool_calls) {
+          toolCalls = applyDeltaToToolCalls(toolCalls, delta.tool_calls);
+        }
+      }
+      if (parsed.usage) {
+        promptTokens += parsed.usage.prompt_tokens || 0;
+        completionTokens += parsed.usage.completion_tokens || 0;
+      }
+    } catch (e) {
+      console.error("Error parsing chunk:", e);
+    }
+    return false;
+  };
+
+  // Process every complete line in the buffer and keep the trailing partial
+  // line for the next chunk
+  const processBufferedLines = () => {
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (processLine(line)) {
+        finished = true;
+        return;
       }
     }
+  };
+
+  while (!finished) {
+    const { value, done } = await reader.read();
+    if (value) {
+      buffer += decoder.decode(value, { stream: true });
+      processBufferedLines();
+    }
+    if (done) break;
   }
 
-  // Process any remaining buffered content
-  if (buffer.trim() !== "") {
-    const line = buffer.trim();
-    if (line.startsWith("data: ")) {
-      const data = line.replace("data: ", "").trim();
-      if (data !== "[DONE]") {
-        try {
-          const parsed = JSON.parse(data) as ORResponse;
-          const choice = parsed.choices[0];
-          if (choice && "delta" in choice) {
-            const delta = choice.delta;
-            if (delta.content) {
-              assistantContent += delta.content;
-              if (onChunkProcessed) {
-                onChunkProcessed(assistantContent);
-              }
-            }
-            if (delta.tool_calls) {
-              toolCalls = applyDeltaToToolCalls(toolCalls, delta.tool_calls);
-            }
-          }
-          if (parsed.usage) {
-            promptTokens += parsed.usage.prompt_tokens || 0;
-            completionTokens += parsed.usage.completion_tokens || 0;
-          }
-        } catch (e) {
-          console.error("Error parsing buffered line:", e);
-        }
-      }
+  // Flush any bytes the decoder is still holding and handle a final line that
+  // was not terminated by a newline
+  if (!finished) {
+    buffer += decoder.decode();
+    if (buffer !== "") {
+      processLine(buffer);
     }
   }
 
