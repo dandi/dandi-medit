@@ -3,7 +3,8 @@ import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import { Box, AppBar, Toolbar, Typography, IconButton, Alert, Snackbar, Tooltip } from '@mui/material';
 import InfoIcon from '@mui/icons-material/Info';
 import GitHubIcon from '@mui/icons-material/GitHub';
-import { MetadataProvider, useMetadataContext } from './context/MetadataContext';
+import { MetadataProvider } from './context/MetadataContext';
+import { useMetadataContext } from './context/useMetadataContext';
 import type { DandiInstance } from './utils/dandiInstances';
 import logoIcon from '/logo-white.svg';
 import { MainLayout } from './components/Layout/MainLayout';
@@ -27,17 +28,21 @@ const theme = createTheme({
   palette: {
     primary: {
       main: '#1976d2',
+      lighter: '#e3f2fd',
     },
     success: {
       main: '#2e7d32',
       light: '#4caf50',
-      // @ts-expect-error - MUI doesn't have lighter in the type but we can use it
       lighter: '#e8f5e9',
+    },
+    warning: {
+      main: '#ed6c02',
+      light: '#ff9800',
+      lighter: '#fff8e1',
     },
     error: {
       main: '#d32f2f',
       light: '#ef5350',
-      // @ts-expect-error - MUI doesn't have lighter in the type but we can use it
       lighter: '#ffebee',
     },
   },

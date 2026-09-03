@@ -20,7 +20,7 @@ import StopIcon from "@mui/icons-material/Stop";
 import DownloadIcon from "@mui/icons-material/Download";
 import CompressIcon from "@mui/icons-material/Compress";
 import CloseIcon from "@mui/icons-material/Close";
-import { useMetadataContext } from "../../context/MetadataContext";
+import { useMetadataContext } from "../../context/useMetadataContext";
 import useChat from "../../chat/useChat";
 import { CHEAP_MODELS } from "../../chat/availableModels";
 import { getStoredOpenRouterApiKey } from "../../chat/apiKeyStorage";
@@ -35,6 +35,7 @@ export function ChatPanel() {
     versionInfo,
     originalMetadata,
     modifiedMetadata,
+    hasChanges,
     dandisetId,
     version,
     modifyMetadata,
@@ -348,7 +349,7 @@ export function ChatPanel() {
               <li>Fix formatting or compliance issues</li>
               <li>Suggest better descriptions</li>
             </Box>
-            {JSON.stringify(originalMetadata) !== JSON.stringify(modifiedMetadata) && (
+            {hasChanges && (
               <Typography
                 variant="body2"
                 color="text.secondary"
