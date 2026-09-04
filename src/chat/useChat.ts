@@ -12,7 +12,12 @@ import { parseSuggestions } from "./parseSuggestions";
 import { getStoredModel, setStoredModel } from "./apiKeyStorage";
 import { computeDelta, deltaToChanges, formatValue } from "../core/metadataDiff";
 import { parseCompletionStream } from "./parseCompletionStream";
-import { COMPLETION_URL, buildCompletionHeaders } from "./completionApi";
+import {
+  COMPLETION_URL,
+  buildCompletionHeaders,
+  describeCompletionError,
+  isUsingOwnOpenRouterKey,
+} from "./completionApi";
 
 const DANDI_METADATA_DOCS_URL =
   "https://raw.githubusercontent.com/dandi/dandi-docs/refs/heads/master/docs/user-guide-sharing/dandiset-metadata.md";
@@ -618,7 +623,13 @@ ${plainTextConversation}`;
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to compress conversation: ${response.statusText}`);
+        throw new Error(
+          `Failed to compress conversation: ${describeCompletionError(
+            response.status,
+            response.statusText,
+            isUsingOwnOpenRouterKey(),
+          )}`,
+        );
       }
 
       const reader = response.body?.getReader();
