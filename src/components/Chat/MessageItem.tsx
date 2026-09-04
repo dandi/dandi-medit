@@ -98,6 +98,8 @@ const getToolCallSummary = (
     switch (name) {
       case "fetch_url":
         return args.url ? `fetch_url: ${args.url}` : "fetch_url";
+      case "import_contributors_from_publication":
+        return args.doi ? `import_contributors_from_publication: ${args.doi}${args.dryRun ? " (dry run)" : ""}` : name;
       case "lookup_ontology_term":
         return args.term
           ? `lookup_ontology_term: ${args.term}`
