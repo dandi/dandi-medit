@@ -70,8 +70,7 @@ describe('computeChecklist', () => {
       ],
     });
     expect(map.orcids.status).toBe('fail');
-    expect(map.orcids.detail).toContain('Babbage, Charles');
-    expect(map.orcids.detail).toContain('Menabrea, Luigi');
+    expect(map.orcids.detail).toBe('Missing ORCID: Babbage, Charles; Menabrea, Luigi');
     expect(map.affiliations.status).toBe('fail');
     expect(map.affiliations.detail).toContain('Babbage, Charles');
     expect(map.authors.status).toBe('pass');
@@ -88,7 +87,7 @@ describe('computeChecklist', () => {
     expect(byId({ ...complete, contributor: [{ ...funder, roleName: ['dcite:Funder'] }] }).funders.status).toBe('pass');
     const noAward = byId({ ...complete, contributor: [{ ...funder, awardNumber: '' }] });
     expect(noAward.funders.status).toBe('fail');
-    expect(noAward.funders.detail).toMatch(/award number/);
+    expect(noAward.funders.detail).toMatch(/Missing award number/);
     const noRor = byId({ ...complete, contributor: [{ ...funder, identifier: undefined }] });
     expect(noRor.funders.detail).toMatch(/ROR/);
     expect(byId({ ...complete, contributor: [complete.contributor[0]] }).funders.detail).toMatch(/No funder/);

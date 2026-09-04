@@ -83,9 +83,13 @@ const isPerson = (c: any): boolean => c?.schemaKey === "Person";
 const isFunder = (c: any): boolean => roles(c).some((r) => FUNDER_ROLES.has(r));
 const displayName = (c: any): string => asString(c?.name) || "(unnamed)";
 
+/**
+ * Join names for a detail line. Names are in "Family, Given" form, so they are
+ * separated with semicolons to keep them readable.
+ */
 function listNames(names: string[], limit = 4): string {
-  if (names.length <= limit) return names.join(", ");
-  return `${names.slice(0, limit).join(", ")} and ${names.length - limit} more`;
+  if (names.length <= limit) return names.join("; ");
+  return `${names.slice(0, limit).join("; ")} and ${names.length - limit} more`;
 }
 
 function hasDoi(resource: any): boolean {
@@ -138,7 +142,7 @@ function ruleOrcids(metadata: any): ChecklistItem {
     label: "Contributors have ORCIDs",
     kind: "rule",
     status: missing.length === 0 ? "pass" : "fail",
-    detail: missing.length === 0 ? `All ${people.length} have an ORCID.` : `Missing ORCID: ${listNames(missing)}.`,
+    detail: missing.length === 0 ? `All ${people.length} have an ORCID.` : `Missing ORCID: ${listNames(missing)}`,
   };
 }
 
@@ -158,7 +162,7 @@ function ruleAffiliations(metadata: any): ChecklistItem {
     detail:
       withoutRor.length === 0
         ? `All ${people.length} have a ROR-linked affiliation.`
-        : `No ROR-linked affiliation: ${listNames(withoutRor)}.`,
+        : `No ROR-linked affiliation: ${listNames(withoutRor)}`,
   };
 }
 
@@ -176,14 +180,14 @@ function ruleFunders(metadata: any): ChecklistItem {
   const noAward = funders.filter((f) => !asString(f?.awardNumber)).map(displayName);
   const noRor = funders.filter((f) => !ROR_PATTERN.test(asString(f?.identifier))).map(displayName);
   const problems: string[] = [];
-  if (noAward.length > 0) problems.push(`missing award number: ${listNames(noAward)}`);
-  if (noRor.length > 0) problems.push(`missing ROR: ${listNames(noRor)}`);
+  if (noAward.length > 0) problems.push(`Missing award number: ${listNames(noAward)}`);
+  if (noRor.length > 0) problems.push(`Missing ROR: ${listNames(noRor)}`);
   return {
     id: "funders",
     label: "Funders with award numbers and RORs",
     kind: "rule",
     status: problems.length === 0 ? "pass" : "fail",
-    detail: problems.length === 0 ? `${funders.length} funder${funders.length === 1 ? "" : "s"}, all complete.` : `${problems.join("; ")}.`,
+    detail: problems.length === 0 ? `${funders.length} funder${funders.length === 1 ? "" : "s"}, all complete.` : problems.join(". "),
   };
 }
 
@@ -219,7 +223,7 @@ function ruleKeywords(metadata: any): ChecklistItem {
     detail:
       generic.length === 0
         ? `${keywords.length} keyword${keywords.length === 1 ? "" : "s"}.`
-        : `Too generic to add search value: ${listNames(generic)}.`,
+        : `Too generic to add search value: ${listNames(generic)}`,
   };
 }
 
