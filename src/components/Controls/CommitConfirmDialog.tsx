@@ -22,6 +22,8 @@ interface CommitConfirmDialogProps {
   original: unknown;
   modified: unknown;
   isCommitting: boolean;
+  /** The commit relies on administrator rights rather than ownership. */
+  asAdmin?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -34,6 +36,7 @@ export function CommitConfirmDialog({
   modified,
   isCommitting,
   onCancel,
+  asAdmin = false,
   onConfirm,
 }: CommitConfirmDialogProps) {
   // The dialog is remounted (via a key) each time it opens, so computing the
@@ -49,6 +52,13 @@ export function CommitConfirmDialog({
         Commit {total} {total === 1 ? 'change' : 'changes'} to dandiset {dandisetId} on {instanceName}?
       </DialogTitle>
       <DialogContent>
+        {asAdmin && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            You are not an owner of dandiset {dandisetId}. This commit will use your DANDI
+            administrator rights, and the owners will not be notified by this tool. Make sure
+            they expect these changes.
+          </Alert>
+        )}
         <Alert severity="warning" sx={{ mb: 2 }}>
           Please verify every change before committing. This AI assistant can still make mistakes,
           including incorrect ordering, hallucinated identifiers, or inappropriate values. Review

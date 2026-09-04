@@ -204,25 +204,35 @@ export async function fetchDandisetOwners(
   return data as DandisetOwner[];
 }
 
-export async function checkUserCanEdit(
+export interface EditPermission {
+  /** The user is listed as an owner of the dandiset. */
+  isOwner: boolean;
+  /** The user is a DANDI administrator, who can update any dandiset. */
+  isAdmin: boolean;
+}
+
+/**
+ * Determine how the current user may edit a dandiset. Administrators can
+ * update any dandiset, but the app only lets them commit to dandisets they
+ * do not own after they deliberately enable admin mode, so both flags are
+ * returned rather than a single yes or no.
+ */
+export async function fetchEditPermission(
   dandisetId: string,
   apiKey: string,
   dandiApiBase: string
-): Promise<boolean> {
+): Promise<EditPermission> {
   try {
     const [currentUser, owners] = await Promise.all([
       fetchCurrentUser(apiKey, dandiApiBase),
       fetchDandisetOwners(dandisetId, apiKey, dandiApiBase),
     ]);
-
-    // DANDI administrators can update any dandiset, not only the ones they own.
-    if (currentUser.admin) {
-      return true;
-    }
-
-    return owners.some((owner) => owner.username === currentUser.username);
+    return {
+      isOwner: owners.some((owner) => owner.username === currentUser.username),
+      isAdmin: currentUser.admin === true,
+    };
   } catch (error) {
     console.error('Failed to check edit permission:', error);
-    return false;
+    return { isOwner: false, isAdmin: false };
   }
 }
