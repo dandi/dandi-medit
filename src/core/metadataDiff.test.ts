@@ -7,6 +7,7 @@ import {
   formatValue,
   hasDifferences,
   reverseDelta,
+  summarizePendingChanges,
 } from './metadataDiff';
 
 describe('computeDelta and hasDifferences', () => {
@@ -139,5 +140,62 @@ describe('formatValue and changeToDescription', () => {
     expect(
       changeToDescription({ path: 'a', type: 'modified', oldValue: 1, newValue: 2 }),
     ).toBe('Changed a: 1 → 2');
+  });
+});
+
+describe('summarizePendingChanges', () => {
+  it('reports nothing when the two objects are identical', () => {
+    const original = { name: 'Study', keywords: ['a', 'b'] };
+    const modified = JSON.parse(JSON.stringify(original));
+    expect(summarizePendingChanges(original, modified)).toEqual({
+      lines: [],
+      hidden: 0,
+      total: 0,
+    });
+  });
+
+  it('describes a handful of changes without hiding any', () => {
+    const original = { name: 'Study', description: 'old', license: ['CC0'] };
+    const modified = { name: 'Study', description: 'new', url: 'https://example.org' };
+
+    const summary = summarizePendingChanges(original, modified);
+
+    expect(summary.total).toBe(3);
+    expect(summary.hidden).toBe(0);
+    expect(summary.lines).toHaveLength(3);
+    expect(summary.lines).toContain('Changed description: "old" → "new"');
+    expect(summary.lines).toContain('Added url: "https://example.org"');
+    expect(summary.lines).toContain('Removed license');
+  });
+
+  it('caps the listed lines at the limit and counts the rest as hidden', () => {
+    const original: Record<string, string> = {};
+    const modified: Record<string, string> = {};
+    for (let i = 0; i < 20; i++) {
+      original[`field${i}`] = 'before';
+      modified[`field${i}`] = 'after';
+    }
+
+    const summary = summarizePendingChanges(original, modified, 15);
+
+    expect(summary.total).toBe(20);
+    expect(summary.lines).toHaveLength(15);
+    expect(summary.hidden).toBe(5);
+    expect(summary.lines[0]).toBe('Changed field0: "before" → "after"');
+  });
+
+  it('honors a limit smaller than the default', () => {
+    const original = { a: 1, b: 2, c: 3 };
+    const modified = { a: 10, b: 20, c: 30 };
+
+    const summary = summarizePendingChanges(original, modified, 2);
+
+    expect(summary.lines).toHaveLength(2);
+    expect(summary.hidden).toBe(1);
+    expect(summary.total).toBe(3);
+  });
+
+  it('returns an empty summary when metadata has not been loaded yet', () => {
+    expect(summarizePendingChanges(null, null)).toEqual({ lines: [], hidden: 0, total: 0 });
   });
 });
