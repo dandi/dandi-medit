@@ -2,6 +2,7 @@
 import { getReadOnlyFieldsSync } from "../../schemas/schemaService";
 import { QPTool, ToolExecutionContext, MetadataOperationType } from "../types";
 import { validateIdentifierInValue, normalizeOrcid } from "./validateUrls";
+import { describePlaceholderFindings, findPlaceholderValues } from "./placeholders";
 
 interface SingleChange {
   operation: MetadataOperationType;
@@ -268,6 +269,22 @@ export const proposeMetadataChangeTool: QPTool = {
         if (hasPrefixedAwardNumber) continue;
       }
 
+      // Reject placeholder text such as "N/A", "TBD" or "[insert email]" so a
+      // model that lacks source data omits the field instead of stubbing it
+      if (value !== undefined) {
+        const placeholders = findPlaceholderValues(value, path);
+        if (placeholders.length > 0) {
+          results.push({
+            success: false,
+            index: i,
+            path,
+            error: describePlaceholderFindings(placeholders),
+          });
+          allSucceeded = false;
+          continue;
+        }
+      }
+
       // Validate URLs and identifiers (ORCID, ROR IDs) before applying changes
       if (value !== undefined) {
         const validationResult = await validateIdentifierInValue(path, value);
@@ -408,6 +425,9 @@ Apply multiple keyword changes at once:
 - ROR IDs (organization identifiers) are validated against the ROR API to ensure they exist
 - URLs in contributor profiles and other fields are checked to ensure they resolve
 - If validation fails, the change will be rejected with an error message explaining why
+
+**No placeholders:**
+- Values such as "N/A", "TBD", "unknown", "[insert email]", an all-zero ORCID or a made-up ROR are rejected. If you do not have the information, leave the field out and tell the user what is missing.
 
 **Read-only fields (cannot be modified):**
 id, schemaVersion, url, repository, identifier, dateCreated, dateModified,
