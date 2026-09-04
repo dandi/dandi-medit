@@ -91,6 +91,26 @@ export const validateFullMetadataAsync = async (
 };
 
 /**
+ * Return the validation errors present in `after` that were not already
+ * present in `before`. Errors are matched by instance path, keyword and
+ * message, so pre-existing problems in a dandiset do not block later edits,
+ * while any error a change introduces is still reported.
+ *
+ * Because errors are keyed by path, an edit that shifts array indices (for
+ * example deleting the first contributor) can make an existing error at
+ * /contributor/1 reappear as a "new" error at /contributor/0.
+ */
+export const findNewValidationErrors = (
+  before: ValidationError[],
+  after: ValidationError[],
+): ValidationError[] => {
+  const key = (err: ValidationError) =>
+    `${err.path}::${err.keyword}::${err.message}`;
+  const existing = new Set(before.map(key));
+  return after.filter((err) => !existing.has(key(err)));
+};
+
+/**
  * Format validation errors into human-readable strings
  */
 export const formatValidationErrors = (

@@ -9,6 +9,7 @@
     "build:surge": "npm run build && mkdir -p dist-surge/dandiset-metadata-assistant && cp -r dist/* dist-surge/dandiset-metadata-assistant/",
     "lint": "eslint .",
     "test": "vitest run",
+    "update-cognitive-atlas": "node scripts/update-cognitive-atlas.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
     "react-syntax-highlighter": "^16.1.0",
     "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0"
   },

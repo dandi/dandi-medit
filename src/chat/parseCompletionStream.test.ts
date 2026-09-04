@@ -176,12 +176,9 @@ describe('parseCompletionStream', () => {
     expect(result.assistantContent).toBe('ok');
   });
 
-  // The parser creates a fresh TextDecoder for every chunk and decodes
-  // without { stream: true }, so a multi-byte character whose bytes are
-  // split across two chunks comes out as replacement characters. Issue #105
-  // replaces the decoder with a single streaming one; enable this test once
-  // that lands.
-  it.skip('decodes a multi-byte UTF-8 character split across two chunks (see #105)', async () => {
+  // A multi-byte character whose bytes are split across two chunks must
+  // survive decoding; this relies on the decoder running in streaming mode.
+  it('decodes a multi-byte UTF-8 character split across two chunks', async () => {
     const line = sse(contentChunk('café'));
     const bytes = new TextEncoder().encode(line);
     // "é" is two bytes (0xC3 0xA9); cut between them.

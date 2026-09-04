@@ -6,11 +6,18 @@ import { DEFAULT_MODEL, AVAILABLE_MODELS } from "./availableModels";
 import { proposeMetadataChangeTool } from "./tools/proposeMetadataChange";
 import { fetchUrlTool } from "./tools/fetchUrl";
 import { lookupOntologyTermTool } from "./tools/lookupOntologyTerm";
+import { importContributorsTool } from "./tools/importContributors";
 import { fetchSchema } from "../schemas/schemaService";
 import { parseSuggestions } from "./parseSuggestions";
+import { getStoredModel, setStoredModel } from "./apiKeyStorage";
 import { computeDelta, deltaToChanges, formatValue } from "../core/metadataDiff";
 import { parseCompletionStream } from "./parseCompletionStream";
-import { COMPLETION_URL, buildCompletionHeaders } from "./completionApi";
+import {
+  COMPLETION_URL,
+  buildCompletionHeaders,
+  describeCompletionError,
+  isUsingOwnOpenRouterKey,
+} from "./completionApi";
 
 const DANDI_METADATA_DOCS_URL =
   "https://raw.githubusercontent.com/dandi/dandi-docs/refs/heads/master/docs/user-guide-sharing/dandiset-metadata.md";
@@ -94,6 +101,14 @@ const emptyChat: Chat = {
   model: DEFAULT_MODEL,
 };
 
+const getInitialModel = (): string => {
+  const storedModel = getStoredModel();
+  if (storedModel && AVAILABLE_MODELS.some((m) => m.model === storedModel)) {
+    return storedModel;
+  }
+  return DEFAULT_MODEL;
+};
+
 const chatReducer = (state: Chat, action: ChatAction): Chat => {
   switch (action.type) {
     case "add_message":
@@ -119,7 +134,7 @@ const chatReducer = (state: Chat, action: ChatAction): Chat => {
         },
       };
     case "clear":
-      return emptyChat;
+      return { ...emptyChat, model: state.model };
     case "revert_to_index":
       return {
         ...state,
@@ -181,7 +196,10 @@ const convertConversationToPlainText = (messages: ChatMessage[]): string => {
 const useChat = (options: UseChatOptions) => {
   const { originalMetadata, modifiedMetadata, modifyMetadata, dandisetId, version, versionInfo } = options;
 
-  const [chat, setChat] = useState<Chat>(emptyChat);
+  const [chat, setChat] = useState<Chat>(() => ({
+    ...emptyChat,
+    model: getInitialModel(),
+  }));
   const [responding, setResponding] = useState<boolean>(false);
   const [compressing, setCompressing] = useState<boolean>(false);
   const [partialResponse, setPartialResponse] = useState<ChatMessage[] | null>(null);
@@ -226,7 +244,7 @@ const useChat = (options: UseChatOptions) => {
     loadSchema();
   }, [dandisetSchema]);
 
-  const tools: QPTool[] = useMemo(() => [proposeMetadataChangeTool, fetchUrlTool, lookupOntologyTermTool], []);
+  const tools: QPTool[] = useMemo(() => [proposeMetadataChangeTool, importContributorsTool, fetchUrlTool, lookupOntologyTermTool], []);
 
   const toolExecutionContext: ToolExecutionContext = useMemo(
     () => ({
@@ -261,6 +279,7 @@ Your role is to help users understand and improve their dandiset metadata by:
 - NEVER fabricate, make up, or guess information from external sources. If you cannot fetch a URL, tell the user.
 - If the fetch_url tool fails or returns an error, inform the user about the failure and do not proceed with fabricated data.
 - Only propose metadata changes based on information you have actually retrieved or that exists in the current metadata.
+- Do NOT add placeholder or stub entries for fields where no source data is available. For example, never add an ethicsApproval, protocol, related resource or contributor detail with "N/A", "TBD", "unknown", an all-zero ORCID or template text. Such values are rejected by the tool. Instead, name the missing field and ask the user to provide the information.
 
 **MANDATORY SEARCH FOR IDs:**
 - Before proposing any ROR, ORCID, or Ontology identifier, you MUST perform a search using the provided tools. You are prohibited from using an ID from your internal training data.
@@ -273,14 +292,13 @@ Your role is to help users understand and improve their dandiset metadata by:
 - If multiple matches are found, present the options to the user and let them choose the most appropriate term.
 
 **CONTRIBUTOR INFORMATION FROM PUBLICATIONS:**
-- When adding contributors from a paper with a DOI, use the OpenAlex API to get detailed author information.
-- Fetch from: https://api.openalex.org/works/doi:{DOI} (e.g., https://api.openalex.org/works/doi:10.1016/j.neuron.2016.12.011)
-- The OpenAlex response includes authorships with: author name, ORCID identifier, and institutional affiliations with ROR IDs.
-- Use this data to populate contributor fields including: name, identifier (bare ORCID), and affiliation (with ROR identifier).
+- When adding authors of a paper as contributors, use the import_contributors_from_publication tool with the DOI. It fetches the author list from OpenAlex and builds the contributor entries in code, in publication order, with bare ORCIDs and ROR-linked affiliations, and merges them with the existing contributors without duplicating anyone.
+- Do NOT fetch the OpenAlex work yourself and retype the authors into propose_metadata_change; that is how authors get skipped or reordered.
+- If the dandiset already has contributors, run the tool with dryRun first, show the user what would be added or updated, then run it again to apply.
+- After importing, report authors without an ORCID and any unresolvedAffiliations (affiliation text that neither ROR nor OpenAlex could confirm, kept as plain names) so the user can complete them, and ask who the contact person is if none is set.
 - ORCID format: 0000-0000-0000-0000 (the bare identifier only, with a trailing X allowed in the last group). The schema rejects the URL form https://orcid.org/0000-0000-0000-0000.
 - ROR format: https://ror.org/XXXXXXX
-- To get funding/award information, use https://api.openalex.org/works/doi:[doi]?select=id,title,funders,awards
-- **IMPORTANT - VERIFY AUTHOR ORDER**: When adding contributors from a publication, ensure the order of authors matches the order listed in the paper. The OpenAlex API returns authors in publication order — preserve this order when adding contributors. After proposing contributor additions, verify that the author order in your proposal matches the order from the OpenAlex response. If the dandiset already has contributors listed in a different order, flag the discrepancy to the user.
+- To get funding/award information, use fetch_url on https://api.openalex.org/works/doi:[doi]?select=id,title,funders,awards
 
 **SUGGESTED PROMPTS:**
 - You can include suggested follow-up prompts for the user in any of your responses
@@ -435,6 +453,11 @@ ${pendingChanges}
         {
           let updatedChat = currentChat;
           for (const msg of partialResponseLocal) {
+            // Status-only messages (for example the rate limit countdown) are
+            // not part of the conversation, so we drop them here.
+            if (msg.role === "assistant" && msg.transient) {
+              continue;
+            }
             updatedChat = chatReducer(updatedChat, {
               type: "add_message",
               message: msg,
@@ -513,6 +536,7 @@ ${pendingChanges}
   }, []);
 
   const setChatModel = useCallback((newModel: string) => {
+    setStoredModel(newModel);
     setChat((prev) => chatReducer(prev, { type: "set_model", model: newModel }));
   }, []);
 
@@ -522,7 +546,7 @@ ${pendingChanges}
       abortControllerRef.current.abort();
     }
     setMessageQueue([]);
-    setChat(emptyChat);
+    setChat((prev) => ({ ...emptyChat, model: prev.model }));
     setError(null);
     setPartialResponse(null);
     setResponding(false);
@@ -599,7 +623,13 @@ ${plainTextConversation}`;
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to compress conversation: ${response.statusText}`);
+        throw new Error(
+          `Failed to compress conversation: ${describeCompletionError(
+            response.status,
+            response.statusText,
+            isUsingOwnOpenRouterKey(),
+          )}`,
+        );
       }
 
       const reader = response.body?.getReader();
@@ -690,6 +720,7 @@ ${JSON.stringify(modifiedMetadata, null, 2)}
 `;
       const suggestionsChat: Chat = {
         ...emptyChat,
+        model: chat.model,
         messages: [
           {
             role: "user",
@@ -732,7 +763,7 @@ ${JSON.stringify(modifiedMetadata, null, 2)}
     } finally {
       setLoadingInitialSuggestions(false);
     }
-  }, [originalMetadata, modifiedMetadata, dandisetId, version]);
+  }, [originalMetadata, modifiedMetadata, dandisetId, version, chat.model]);
 
   // Trigger initial suggestions fetch when metadata is available
   useEffect(() => {

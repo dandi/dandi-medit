@@ -84,6 +84,11 @@ export function ChatPanel() {
   const isNearBottomRef = useRef<boolean>(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState<boolean>(false);
 
+  // A missing-credit failure is fixable by adding an OpenRouter key, so offer a
+  // direct way into settings alongside the error.
+  const errorMentionsCredit =
+    !!error && /openrouter/i.test(error) && /credit/i.test(error);
+
   // Get compression threshold from URL query parameter (for testing)
   const compressionThreshold = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -492,15 +497,27 @@ export function ChatPanel() {
           severity="error"
           sx={{ mx: 2, mb: 1 }}
           action={
-            error.length > 100 ? (
-              <IconButton
-                size="small"
-                onClick={() => setErrorExpanded(!errorExpanded)}
-                sx={{ color: "inherit" }}
-              >
-                {errorExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-              </IconButton>
-            ) : null
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              {errorMentionsCredit && (
+                <Button
+                  size="small"
+                  color="inherit"
+                  startIcon={<SettingsIcon fontSize="small" />}
+                  onClick={() => setSettingsOpen(true)}
+                >
+                  Open Settings
+                </Button>
+              )}
+              {error.length > 100 && (
+                <IconButton
+                  size="small"
+                  onClick={() => setErrorExpanded(!errorExpanded)}
+                  sx={{ color: "inherit" }}
+                >
+                  {errorExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                </IconButton>
+              )}
+            </Box>
           }
         >
           {error.length > 100 && !errorExpanded ? (

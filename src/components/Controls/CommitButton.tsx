@@ -5,6 +5,7 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import LockIcon from '@mui/icons-material/Lock';
 import LinkIcon from '@mui/icons-material/Link';
 import { useMetadataContext } from '../../context/useMetadataContext';
+import { CommitConfirmDialog } from './CommitConfirmDialog';
 import { commitMetadataChanges, fetchDandisetVersionInfo, checkUserCanEdit } from '../../utils/api';
 import { createProposalLink } from '../../core/proposalLink';
 import type { DandisetMetadata } from '../../types/dandiset';
@@ -27,6 +28,7 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
     setOriginalMetadata,
     clearModifications,
     dandiApiBase,
+    dandiInstance,
   } = useMetadataContext();
 
   const [isCommitting, setIsCommitting] = useState(false);
@@ -36,6 +38,9 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
   const [copyError, setCopyError] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [canEdit, setCanEdit] = useState<boolean | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // Bumped every time the dialog opens so it remounts with a cleared checkbox.
+  const [confirmKey, setConfirmKey] = useState(0);
 
   const canCommit = hasChanges && !!apiKey && !!versionInfo && canEdit === true;
 
@@ -58,6 +63,11 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
 
     checkEditPermission();
   }, [apiKey, dandisetId, dandiApiBase]);
+
+  const handleOpenConfirm = () => {
+    setConfirmKey((key) => key + 1);
+    setConfirmOpen(true);
+  };
 
   const handleCommit = async () => {
     if (!apiKey || !versionInfo || !dandisetId || !version || !modifiedMetadata) {
@@ -95,6 +105,7 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
       setCommitError(error instanceof Error ? error.message : 'Failed to commit changes');
     } finally {
       setIsCommitting(false);
+      setConfirmOpen(false);
     }
   };
 
@@ -201,7 +212,7 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
               color="success"
               size="small"
               startIcon={isCommitting ? <CircularProgress size={16} color="inherit" /> : (!apiKey ? <LockIcon /> : <SaveIcon />)}
-              onClick={handleCommit}
+              onClick={handleOpenConfirm}
               disabled={!canCommit || isCommitting}
             >
               {isCommitting ? 'Committing...' : 'Commit Changes'}
@@ -209,6 +220,18 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
           </span>
         </Tooltip>
       </Box>
+
+      <CommitConfirmDialog
+        key={confirmKey}
+        open={confirmOpen}
+        dandisetId={dandisetId}
+        instanceName={dandiInstance.name}
+        original={originalMetadata}
+        modified={modifiedMetadata}
+        isCommitting={isCommitting}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={handleCommit}
+      />
 
       {/* Success snackbar */}
       <Snackbar

@@ -25,6 +25,25 @@ export const clearStoredOpenRouterApiKey = (): void => {
   }
 };
 
+const MODEL_STORAGE_KEY = "openrouter_model";
+
+export const getStoredModel = (): string | null => {
+  try {
+    return localStorage.getItem(MODEL_STORAGE_KEY);
+  } catch (error) {
+    console.error("Error reading model from localStorage:", error);
+    return null;
+  }
+};
+
+export const setStoredModel = (model: string): void => {
+  try {
+    localStorage.setItem(MODEL_STORAGE_KEY, model);
+  } catch (error) {
+    console.error("Error saving model to localStorage:", error);
+  }
+};
+
 export const maskApiKey = (apiKey: string): string => {
   if (!apiKey || apiKey.length < 8) {
     return "***";

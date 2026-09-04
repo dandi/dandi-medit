@@ -1,0 +1,123 @@
+{
+  "id": "https://openalex.org/W4300716329",
+  "doi": "https://doi.org/10.7554/elife.78362",
+  "title": "The Neurodata Without Borders ecosystem for neurophysiological data science",
+  "authorships": [
+    {
+      "author_position": "first",
+      "author": {
+        "id": "https://openalex.org/A5012378616",
+        "display_name": "Oliver Rübel",
+        "orcid": "https://orcid.org/0000-0001-9902-1984"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I148283060",
+          "display_name": "Lawrence Berkeley National Laboratory",
+          "ror": "https://ror.org/02jbv0t02",
+          "country_code": "US"
+        }
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Oliver Rübel",
+      "raw_affiliation_strings": [
+        "Scientific Data Division, Lawrence Berkeley National Laboratory"
+      ],
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Scientific Data Division, Lawrence Berkeley National Laboratory",
+          "institution_ids": [
+            "https://openalex.org/I148283060"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5076792091",
+        "display_name": "Andrew Tritt",
+        "orcid": "https://orcid.org/0000-0002-1617-449X"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I148283060",
+          "display_name": "Lawrence Berkeley National Laboratory",
+          "ror": "https://ror.org/02jbv0t02",
+          "country_code": "US"
+        }
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Andrew Tritt",
+      "raw_affiliation_strings": [
+        "Applied Mathematics and Computational Research Division, Lawrence Berkeley National Laboratory"
+      ],
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Applied Mathematics and Computational Research Division, Lawrence Berkeley National Laboratory",
+          "institution_ids": [
+            "https://openalex.org/I148283060"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5026813861",
+        "display_name": "Ryan Ly",
+        "orcid": "https://orcid.org/0000-0001-9238-0642"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I148283060",
+          "display_name": "Lawrence Berkeley National Laboratory",
+          "ror": "https://ror.org/02jbv0t02",
+          "country_code": "US"
+        }
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Ryan Ly",
+      "raw_affiliation_strings": [
+        "Scientific Data Division, Lawrence Berkeley National Laboratory"
+      ],
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Scientific Data Division, Lawrence Berkeley National Laboratory",
+          "institution_ids": [
+            "https://openalex.org/I148283060"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5088656190",
+        "display_name": "Ben Dichter",
+        "orcid": "https://orcid.org/0000-0001-5725-6910"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I4210102307",
+          "display_name": "Catalyst",
+          "ror": "https://ror.org/00qvjvf51",
+          "country_code": "GB"
+        }
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Benjamin K Dichter",
+      "raw_affiliation_strings": [
+        "CatalystNeuro"
+      ],
+      "affiliations": [
+        {
+          "raw_affiliation_string": "CatalystNeuro",
+          "institution_ids": [
+            "https://openalex.org/I4210102307"
+          ]
+        }
+      ]
+    }
+  ]
+}

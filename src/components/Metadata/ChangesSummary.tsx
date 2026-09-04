@@ -98,9 +98,13 @@ export function ChangesSummary({ original, modified }: ChangesSummaryProps) {
       <Box
         sx={{
           p: 1,
+          // Anything that still cannot wrap (a very long URL, for example)
+          // scrolls inside this panel rather than widening the page.
+          overflowX: 'auto',
           '& .jsondiffpatch-delta': {
             fontFamily: 'monospace',
             fontSize: '0.85rem',
+            maxWidth: '100%',
           },
           '& .jsondiffpatch-added .jsondiffpatch-property-name, & .jsondiffpatch-added .jsondiffpatch-value pre, & .jsondiffpatch-modified .jsondiffpatch-right-value pre, & .jsondiffpatch-textdiff-added': {
             backgroundColor: 'rgba(76, 175, 80, 0.15)',
@@ -116,6 +120,19 @@ export function ChangesSummary({ original, modified }: ChangesSummaryProps) {
             margin: 0,
             padding: '2px 4px',
             borderRadius: '4px',
+          },
+          // The formatter stylesheet renders values in <pre> elements and lays
+          // out the text diff with inline-block rows, so a long value such as a
+          // description runs off to the right instead of wrapping. These rules
+          // are nested under this Box's generated class, which makes them more
+          // specific than the stylesheet they override.
+          '& .jsondiffpatch-value, & .jsondiffpatch-textdiff, & .jsondiffpatch-textdiff-line': {
+            maxWidth: '100%',
+          },
+          '& .jsondiffpatch-value pre, & .jsondiffpatch-delta pre, & .jsondiffpatch-textdiff-location, & .jsondiffpatch-textdiff-line, & .jsondiffpatch-textdiff-added, & .jsondiffpatch-textdiff-deleted': {
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
           },
         }}
         dangerouslySetInnerHTML={{ __html: diffHtml }}

@@ -43,6 +43,50 @@ const stripSuggestionsFromContent = (content: string): string => {
 };
 
 /**
+ * Describe a single entry of a propose_metadata_change `changes` array,
+ * e.g. "set name" or "append keywords".
+ */
+const describeMetadataChange = (change: unknown): string => {
+  if (!change || typeof change !== "object") return "change";
+  const { operation, path } = change as {
+    operation?: unknown;
+    path?: unknown;
+  };
+  const op = typeof operation === "string" ? operation : "set";
+  return typeof path === "string" && path ? `${op} ${path}` : op;
+};
+
+/**
+ * Summarize a propose_metadata_change call, listing at most the first three
+ * operation/path pairs of a batch.
+ */
+const MAX_SUMMARIZED_CHANGES = 3;
+
+const getMetadataChangeSummary = (args: {
+  changes?: unknown;
+  path?: unknown;
+}): string => {
+  const changes = Array.isArray(args.changes) ? args.changes : [];
+  if (changes.length === 1) {
+    return `propose_metadata_change: ${describeMetadataChange(changes[0])}`;
+  }
+  if (changes.length > 1) {
+    const shown = changes
+      .slice(0, MAX_SUMMARIZED_CHANGES)
+      .map(describeMetadataChange);
+    const remaining = changes.length - shown.length;
+    const detail =
+      remaining > 0
+        ? `${shown.join(", ")}, and ${remaining} more`
+        : shown.join(", ");
+    return `propose_metadata_change: ${changes.length} changes (${detail})`;
+  }
+  return typeof args.path === "string" && args.path
+    ? `propose_metadata_change: ${args.path}`
+    : "propose_metadata_change";
+};
+
+/**
  * Get a short summary for a tool call based on its name and arguments
  */
 const getToolCallSummary = (
@@ -54,8 +98,14 @@ const getToolCallSummary = (
     switch (name) {
       case "fetch_url":
         return args.url ? `fetch_url: ${args.url}` : "fetch_url";
+      case "import_contributors_from_publication":
+        return args.doi ? `import_contributors_from_publication: ${args.doi}${args.dryRun ? " (dry run)" : ""}` : name;
+      case "lookup_ontology_term":
+        return args.term
+          ? `lookup_ontology_term: ${args.term}`
+          : "lookup_ontology_term";
       case "propose_metadata_change":
-        return args.path ? `propose_metadata_change: ${args.path}` : "propose_metadata_change";
+        return getMetadataChangeSummary(args);
       default:
         return name;
     }

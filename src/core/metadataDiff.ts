@@ -210,3 +210,32 @@ export function changeToDescription(change: MetadataChange): string {
       return `Unknown change at ${change.path}`;
   }
 }
+
+/**
+ * Summary of the pending changes between two metadata objects, prepared for
+ * display in a confirmation dialog.
+ */
+export interface PendingChangesSummary {
+  /** Human-readable description of each change, capped at `limit` entries. */
+  lines: string[];
+  /** How many changes were left out of `lines` because of the cap. */
+  hidden: number;
+  /** Total number of changes, including the ones not listed. */
+  total: number;
+}
+
+/**
+ * Describe the changes between two metadata objects, capping the number of
+ * described lines so a long list stays readable.
+ */
+export function summarizePendingChanges(
+  original: any,
+  modified: any,
+  limit: number = 15
+): PendingChangesSummary {
+  const changes = deltaToChanges(computeDelta(original, modified));
+  const total = changes.length;
+  const cap = Math.max(0, limit);
+  const lines = changes.slice(0, cap).map(changeToDescription);
+  return { lines, hidden: total - lines.length, total };
+}

@@ -1,7 +1,12 @@
 import { QPTool, ToolExecutionContext, Chat, ChatMessage, CompletionRequest } from "./types";
 import { AVAILABLE_MODELS } from "./availableModels";
 import { parseCompletionStream } from "./parseCompletionStream";
-import { COMPLETION_URL, buildCompletionHeaders } from "./completionApi";
+import {
+  COMPLETION_URL,
+  buildCompletionHeaders,
+  describeCompletionError,
+  isUsingOwnOpenRouterKey,
+} from "./completionApi";
 
 // Retry configuration for rate limit errors
 const MAX_RETRIES = 3;
@@ -92,6 +97,7 @@ const processCompletion = async (
             content: `⏳ Rate limit reached. Waiting ${Math.round(delayMs / 1000)} seconds before retrying (attempt ${attempt + 1}/${MAX_RETRIES})...`,
             model: chat.model,
             usage: { promptTokens: 0, completionTokens: 0, estimatedCost: 0 },
+            transient: true,
           },
         ]);
 
@@ -100,7 +106,13 @@ const processCompletion = async (
       }
 
       // Not a rate limit error or out of retries
-      lastError = new Error(`OpenRouter API error: ${errorDetails}`);
+      lastError = new Error(
+        describeCompletionError(
+          response.status,
+          errorDetails,
+          isUsingOwnOpenRouterKey(),
+        ),
+      );
       break;
     } catch (err) {
       // Network error or abort
