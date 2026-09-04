@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Box, Button, Typography, Tooltip, Badge, CircularProgress, Alert, Snackbar, IconButton } from '@mui/material';
+import { Box, Button, Typography, Tooltip, Badge, CircularProgress, Alert, Snackbar, IconButton, FormControlLabel, Switch } from '@mui/material';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import SaveIcon from '@mui/icons-material/Save';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import LockIcon from '@mui/icons-material/Lock';
 import LinkIcon from '@mui/icons-material/Link';
 import { useMetadataContext } from '../../context/useMetadataContext';
 import { CommitConfirmDialog } from './CommitConfirmDialog';
-import { commitMetadataChanges, fetchDandisetVersionInfo, checkUserIsOwner } from '../../utils/api';
+import { commitMetadataChanges, fetchDandisetVersionInfo, fetchEditPermission, type EditPermission } from '../../utils/api';
+import { resolveCommitPermission } from './commitPermission';
 import { createProposalLink } from '../../core/proposalLink';
 import type { DandisetMetadata } from '../../types/dandiset';
 
@@ -37,31 +39,33 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
   const [copySuccess, setCopySuccess] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
-  const [isOwner, setIsOwner] = useState<boolean | null>(null);
+  const [permission, setPermission] = useState<EditPermission | null>(null);
+  // Admin mode is deliberate and per dandiset: it is remembered as the id it
+  // was enabled for, so loading another dandiset starts with it off again.
+  const [adminModeFor, setAdminModeFor] = useState<string | null>(null);
+  const adminMode = adminModeFor === dandisetId;
   const [confirmOpen, setConfirmOpen] = useState(false);
   // Bumped every time the dialog opens so it remounts with a cleared checkbox.
   const [confirmKey, setConfirmKey] = useState(0);
 
-  const canCommit = hasChanges && !!apiKey && !!versionInfo && isOwner === true;
+  const commitPermission = resolveCommitPermission(permission, adminMode);
+  const canCommit = hasChanges && !!apiKey && !!versionInfo && commitPermission.allowed;
 
-  // Check if the user is an owner of the dandiset
+  // Find out whether the user owns the dandiset or is an administrator
   useEffect(() => {
-    async function checkOwnership() {
+    let cancelled = false;
+    async function loadPermission() {
       if (!apiKey || !dandisetId) {
-        setIsOwner(null);
+        setPermission(null);
         return;
       }
-
-      try {
-        const ownerStatus = await checkUserIsOwner(dandisetId, apiKey, dandiApiBase);
-        setIsOwner(ownerStatus);
-      } catch (error) {
-        console.error('Failed to check ownership:', error);
-        setIsOwner(false);
-      }
+      const result = await fetchEditPermission(dandisetId, apiKey, dandiApiBase);
+      if (!cancelled) setPermission(result);
     }
-
-    checkOwnership();
+    loadPermission();
+    return () => {
+      cancelled = true;
+    };
   }, [apiKey, dandisetId, dandiApiBase]);
 
   const handleOpenConfirm = () => {
@@ -194,28 +198,64 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
           </Button>
         )}
 
+        {/* Admin mode: only offered to administrators who do not own the dandiset */}
+        {apiKey && commitPermission.adminModeAvailable && (
+          <Tooltip title="You are not an owner of this dandiset. Admin mode lets you commit anyway, using your DANDI administrator rights.">
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  color="warning"
+                  checked={adminMode}
+                  onChange={(e) => setAdminModeFor(e.target.checked ? dandisetId : null)}
+                  disabled={isCommitting}
+                />
+              }
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <AdminPanelSettingsIcon fontSize="small" color={adminMode ? 'warning' : 'disabled'} />
+                  <Typography variant="body2" color={adminMode ? 'warning.main' : 'text.secondary'}>
+                    Admin mode
+                  </Typography>
+                </Box>
+              }
+              sx={{ mr: 0 }}
+            />
+          </Tooltip>
+        )}
+
         {/* Commit button */}
         <Tooltip
           title={
             !apiKey
               ? 'API key required to commit changes'
-              : isOwner === false
-              ? 'You must be an owner of this dandiset to commit changes'
+              : commitPermission.reason
+              ? commitPermission.reason
               : !hasChanges
               ? 'No pending changes to commit'
+              : commitPermission.viaAdmin
+              ? 'Commit all pending changes as a DANDI administrator'
               : 'Commit all pending changes'
           }
         >
           <span>
             <Button
               variant="contained"
-              color="success"
+              color={commitPermission.viaAdmin ? 'warning' : 'success'}
               size="small"
-              startIcon={isCommitting ? <CircularProgress size={16} color="inherit" /> : (!apiKey ? <LockIcon /> : <SaveIcon />)}
+              startIcon={
+                isCommitting
+                  ? <CircularProgress size={16} color="inherit" />
+                  : !apiKey
+                    ? <LockIcon />
+                    : commitPermission.viaAdmin
+                      ? <AdminPanelSettingsIcon />
+                      : <SaveIcon />
+              }
               onClick={handleOpenConfirm}
               disabled={!canCommit || isCommitting}
             >
-              {isCommitting ? 'Committing...' : 'Commit Changes'}
+              {isCommitting ? 'Committing...' : commitPermission.viaAdmin ? 'Commit as admin' : 'Commit Changes'}
             </Button>
           </span>
         </Tooltip>
@@ -229,6 +269,7 @@ export function CommitButton({ isReviewMode = false }: CommitButtonProps) {
         original={originalMetadata}
         modified={modifiedMetadata}
         isCommitting={isCommitting}
+        asAdmin={commitPermission.viaAdmin}
         onCancel={() => setConfirmOpen(false)}
         onConfirm={handleCommit}
       />
