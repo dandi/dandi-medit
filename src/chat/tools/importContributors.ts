@@ -26,6 +26,24 @@ export interface OpenAlexAuthorship {
   institutions?: OpenAlexInstitution[];
   is_corresponding?: boolean;
   raw_author_name?: string | null;
+  raw_affiliation_strings?: string[];
+  affiliations?: { raw_affiliation_string: string; institution_ids?: string[] }[];
+}
+
+/** A confident match from the ROR affiliation matcher. */
+export interface RorMatch {
+  name: string;
+  identifier: string;
+}
+
+export type AffiliationSource = "ror" | "openalex" | "unresolved";
+
+export interface AffiliationNote {
+  author: string;
+  raw: string;
+  name: string;
+  identifier?: string;
+  source: AffiliationSource;
 }
 
 export interface OpenAlexWork {
@@ -59,6 +77,9 @@ export interface MergeResult {
 }
 
 const OPENALEX_WORKS = "https://api.openalex.org/works";
+const ROR_AFFILIATION_API = "https://api.ror.org/organizations";
+const ROR_TIMEOUT_MS = 8000;
+const ROR_CONCURRENCY = 4;
 const ROR_URL_PATTERN = /^https:\/\/ror\.org\/[a-z0-9]+$/;
 
 // Lowercase name particles that belong with the family name.
@@ -118,16 +139,95 @@ export function nameMatchKey(name: string): string | null {
   return `${family}|${given}`;
 }
 
+/**
+ * Split OpenAlex raw affiliation strings into individual affiliations.
+ * OpenAlex lists each affiliation and also a combined "A; B" string, so the
+ * strings are split on semicolons and deduplicated in order.
+ */
+export function splitRawAffiliations(rawStrings: string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of rawStrings || []) {
+    for (const part of raw.split(";")) {
+      const trimmed = part.trim().replace(/\s+/g, " ");
+      const key = normalizeText(trimmed);
+      if (!trimmed || seen.has(key)) continue;
+      seen.add(key);
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
+
+/** Strip a trailing country qualifier such as " (United States)". */
+function stripCountry(name: string): string {
+  return name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+
+/**
+ * True when every word of an institution name appears as a whole word in the
+ * raw affiliation text. This is what lets "MBF Bioscience" confirm OpenAlex's
+ * match while "Catalyst" (for the raw string "CatalystNeuro") and "Kavli
+ * Institute for Theoretical Sciences" (for "Kavli Institute for Fundamental
+ * Neuroscience") are rejected.
+ */
+export function institutionNameAppearsIn(institutionName: string, rawAffiliation: string): boolean {
+  const rawWords = new Set(normalizeText(rawAffiliation).split(" "));
+  const words = normalizeText(stripCountry(institutionName)).split(" ").filter((w) => w.length > 1);
+  return words.length > 0 && words.every((w) => rawWords.has(w));
+}
+
 function affiliationFromInstitution(inst: OpenAlexInstitution): Affiliation | null {
   const name = inst.display_name?.trim();
   if (!name) return null;
-  const affiliation: Affiliation = { schemaKey: "Affiliation", name };
+  const affiliation: Affiliation = { schemaKey: "Affiliation", name: stripCountry(name) };
   if (inst.ror && ROR_URL_PATTERN.test(inst.ror)) affiliation.identifier = inst.ror;
   return affiliation;
 }
 
+/** OpenAlex institutions that OpenAlex itself paired with a raw string. */
+function institutionsForRaw(authorship: OpenAlexAuthorship, raw: string): OpenAlexInstitution[] {
+  const institutions = authorship.institutions || [];
+  const pairing = (authorship.affiliations || []).find(
+    (a) => normalizeText(a.raw_affiliation_string).includes(normalizeText(raw)),
+  );
+  if (!pairing || !pairing.institution_ids?.length) return institutions;
+  const ids = new Set(pairing.institution_ids);
+  const paired = institutions.filter((i) => i.id && ids.has(i.id));
+  return paired.length > 0 ? paired : institutions;
+}
+
+/**
+ * Resolve one raw affiliation string to an Affiliation entry.
+ *
+ * A confident ROR match wins. Failing that, OpenAlex's institution is
+ * accepted only when its name actually appears in the raw text. Otherwise the
+ * raw text is kept as the affiliation name with no identifier, and the note
+ * marks it unresolved so the user can complete it.
+ */
+export function resolveAffiliation(
+  authorship: OpenAlexAuthorship,
+  raw: string,
+  rorMatches: Map<string, RorMatch | null>,
+): { affiliation: Affiliation; source: AffiliationSource } {
+  const ror = rorMatches.get(raw);
+  if (ror) {
+    return { affiliation: { schemaKey: "Affiliation", name: ror.name, identifier: ror.identifier }, source: "ror" };
+  }
+  const candidates = institutionsForRaw(authorship, raw)
+    .filter((i) => i.display_name && institutionNameAppearsIn(i.display_name, raw))
+    .sort((a, b) => (b.display_name?.length || 0) - (a.display_name?.length || 0));
+  const confirmed = candidates.length > 0 ? affiliationFromInstitution(candidates[0]) : null;
+  if (confirmed) return { affiliation: confirmed, source: "openalex" };
+  return { affiliation: { schemaKey: "Affiliation", name: raw }, source: "unresolved" };
+}
+
 /** Build a Person contributor from one OpenAlex authorship. */
-export function authorshipToContributor(authorship: OpenAlexAuthorship): PersonContributor {
+export function authorshipToContributor(
+  authorship: OpenAlexAuthorship,
+  rorMatches: Map<string, RorMatch | null> = new Map(),
+  notes?: AffiliationNote[],
+): PersonContributor {
   const person: PersonContributor = {
     schemaKey: "Person",
     name: formatPersonName(authorship.author.display_name),
@@ -138,25 +238,94 @@ export function authorshipToContributor(authorship: OpenAlexAuthorship): PersonC
     const orcid = normalizeOrcid(authorship.author.orcid);
     if (orcid) person.identifier = orcid;
   }
+
   const seen = new Set<string>();
   const affiliations: Affiliation[] = [];
-  for (const inst of authorship.institutions || []) {
-    const affiliation = affiliationFromInstitution(inst);
-    if (!affiliation) continue;
+  const push = (affiliation: Affiliation, source: AffiliationSource, raw: string) => {
     const key = affiliation.identifier || normalizeText(affiliation.name);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
     affiliations.push(affiliation);
+    notes?.push({ author: person.name, raw, source, name: affiliation.name, identifier: affiliation.identifier });
+  };
+
+  const rawAffiliations = splitRawAffiliations(authorship.raw_affiliation_strings);
+  if (rawAffiliations.length > 0) {
+    for (const raw of rawAffiliations) {
+      const { affiliation, source } = resolveAffiliation(authorship, raw, rorMatches);
+      push(affiliation, source, raw);
+    }
+  } else {
+    // No raw text from OpenAlex: fall back to its institution list as is.
+    for (const inst of authorship.institutions || []) {
+      const affiliation = affiliationFromInstitution(inst);
+      if (affiliation) push(affiliation, "openalex", inst.display_name || "");
+    }
   }
   if (affiliations.length > 0) person.affiliation = affiliations;
   return person;
 }
 
 /** Build contributors for every authorship, in publication order. */
-export function authorshipsToContributors(work: OpenAlexWork): PersonContributor[] {
+export function authorshipsToContributors(
+  work: OpenAlexWork,
+  rorMatches: Map<string, RorMatch | null> = new Map(),
+  notes?: AffiliationNote[],
+): PersonContributor[] {
   return (work.authorships || [])
     .filter((a) => a?.author?.display_name)
-    .map(authorshipToContributor);
+    .map((a) => authorshipToContributor(a, rorMatches, notes));
+}
+
+/** All distinct raw affiliation strings in a work. */
+export function collectRawAffiliations(work: OpenAlexWork): string[] {
+  return splitRawAffiliations((work.authorships || []).flatMap((a) => a.raw_affiliation_strings || []));
+}
+
+function rorDisplayName(organization: any): string | null {
+  if (typeof organization?.name === "string" && organization.name) return organization.name;
+  const names: any[] = Array.isArray(organization?.names) ? organization.names : [];
+  const display = names.find((n) => Array.isArray(n?.types) && n.types.includes("ror_display")) || names[0];
+  return typeof display?.value === "string" ? display.value : null;
+}
+
+/**
+ * Ask the ROR affiliation matcher about one raw string. Returns the match
+ * only when ROR marks it as chosen, and null when it does not or the request
+ * fails, so a network problem degrades to the OpenAlex and raw-text rules
+ * rather than to a wrong identifier.
+ */
+export async function lookupRorMatch(raw: string): Promise<RorMatch | null> {
+  try {
+    const response = await fetch(`${ROR_AFFILIATION_API}?affiliation=${encodeURIComponent(raw)}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(ROR_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const chosen = (Array.isArray(data?.items) ? data.items : []).find((item: any) => item?.chosen);
+    const id = chosen?.organization?.id;
+    const name = rorDisplayName(chosen?.organization);
+    if (typeof id !== "string" || !ROR_URL_PATTERN.test(id) || !name) return null;
+    return { name, identifier: id };
+  } catch (error) {
+    console.warn(`ROR lookup failed for "${raw}":`, error);
+    return null;
+  }
+}
+
+/** Look up every raw string, a few at a time. */
+export async function lookupRorMatches(rawStrings: string[]): Promise<Map<string, RorMatch | null>> {
+  const matches = new Map<string, RorMatch | null>();
+  const queue = [...rawStrings];
+  const worker = async () => {
+    while (queue.length > 0) {
+      const raw = queue.shift()!;
+      matches.set(raw, await lookupRorMatch(raw));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(ROR_CONCURRENCY, queue.length) }, worker));
+  return matches;
 }
 
 function affiliationKey(aff: any): string | null {
@@ -297,7 +466,9 @@ export const importContributorsTool: QPTool = {
       };
     }
 
-    const imported = authorshipsToContributors(work);
+    const rorMatches = await lookupRorMatches(collectRawAffiliations(work));
+    const affiliationNotes: AffiliationNote[] = [];
+    const imported = authorshipsToContributors(work, rorMatches, affiliationNotes);
     if (imported.length === 0) {
       return {
         result: JSON.stringify({
@@ -314,9 +485,14 @@ export const importContributorsTool: QPTool = {
     const merge = mergeContributors(existing, imported);
 
     const missingOrcid = imported.filter((p) => !p.identifier).map((p) => p.name);
-    const missingRor = imported
-      .filter((p) => (p.affiliation || []).some((a) => !a.identifier))
-      .map((p) => p.name);
+    const unresolvedAffiliations = affiliationNotes
+      .filter((n) => n.source === "unresolved")
+      .map((n) => ({ author: n.author, affiliation: n.raw }));
+    const affiliationSources = {
+      ror: affiliationNotes.filter((n) => n.source === "ror").length,
+      openalex: affiliationNotes.filter((n) => n.source === "openalex").length,
+      unresolved: unresolvedAffiliations.length,
+    };
 
     const summary: any = {
       success: true,
@@ -327,7 +503,8 @@ export const importContributorsTool: QPTool = {
       matchedExisting: merge.matched,
       carriedOverUnchanged: merge.carriedOver,
       missingOrcid,
-      affiliationsWithoutRor: missingRor,
+      affiliationSources,
+      unresolvedAffiliations,
       contributors: merge.contributors,
     };
 
@@ -365,13 +542,14 @@ export const importContributorsTool: QPTool = {
 - { "doi": "https://doi.org/10.7554/eLife.78362", "dryRun": true } reports what would change without proposing it. Use a dry run first when the dandiset already has contributors, then show the user the summary before applying.
 
 **What it does:**
-- One Person entry per author, in publication order, with name as "Family, Given", a bare ORCID when OpenAlex has one, the dcite:Author role, and affiliations with ROR identifiers where available.
+- One Person entry per author, in publication order, with name as "Family, Given", a bare ORCID when OpenAlex has one, and the dcite:Author role.
+- Affiliations come from the affiliation text as printed in the paper. Each is resolved through the ROR affiliation matcher and only a confident match gets a ROR identifier; otherwise OpenAlex's institution is accepted only if its name appears in that text; otherwise the printed text is kept as the affiliation name with no identifier and listed under unresolvedAffiliations. This avoids OpenAlex mismatches such as a small lab being mapped to an unrelated organization with a similar name.
 - Existing contributors are matched by ORCID, then by family name plus first given name. Matched entries keep their spelling, email, roles and other fields, and only gain a missing ORCID, missing affiliations and the Author role.
 - Existing contributors that are not authors of the paper (funders, organizations, other people) are kept after the authors.
 - The result is proposed as a single change to the contributor array and goes through schema validation like any other change.
 
 **After it runs:**
-- Tell the user how many contributors were added or updated, and list any authors without an ORCID or affiliations without a ROR so they can be completed by hand.
+- Tell the user how many contributors were added or updated, list any authors without an ORCID, and list unresolvedAffiliations so the user can add a ROR by hand or accept the plain name.
 - Contact person and email are not set by this tool; ask the user who the contact person is if the dandiset has none.
 - Funding information is not imported here; use fetch_url on https://api.openalex.org/works/doi:{doi}?select=id,title,funders,awards for that.`;
   },

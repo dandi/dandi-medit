@@ -4,9 +4,16 @@ import {
   extractDoi,
   formatPersonName,
   importContributorsTool,
+  institutionNameAppearsIn,
+  lookupRorMatch,
   mergeContributors,
   nameMatchKey,
+  resolveAffiliation,
+  splitRawAffiliations,
+  type AffiliationNote,
+  type OpenAlexAuthorship,
   type OpenAlexWork,
+  type RorMatch,
 } from './importContributors';
 import fixture from './__fixtures__/openalex-elife-78362.json';
 import type { ToolExecutionContext } from '../types';
@@ -71,6 +78,22 @@ describe('authorshipsToContributors', () => {
     for (const person of people) {
       expect(person.identifier).toMatch(/^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/);
     }
+    // OpenAlex mapped the raw string "CatalystNeuro" to an unrelated organization
+    // named "Catalyst"; without a ROR match the raw text is kept and no
+    // identifier is invented.
+    expect(people[3].affiliation).toEqual([{ schemaKey: 'Affiliation', name: 'CatalystNeuro' }]);
+  });
+
+  it('uses a confident ROR match for a raw affiliation and records the sources', () => {
+    const rorMatches = new Map<string, RorMatch | null>([
+      ['CatalystNeuro', { name: 'CatalystNeuro', identifier: 'https://ror.org/01d74sk53' }],
+    ]);
+    const notes: AffiliationNote[] = [];
+    const people = authorshipsToContributors(work, rorMatches, notes);
+    expect(people[3].affiliation).toEqual([
+      { schemaKey: 'Affiliation', name: 'CatalystNeuro', identifier: 'https://ror.org/01d74sk53' },
+    ]);
+    expect(notes.map((n) => n.source)).toEqual(['openalex', 'openalex', 'openalex', 'ror']);
   });
 
   it('omits the identifier and affiliation when OpenAlex has none, and dedupes institutions', () => {
@@ -93,6 +116,102 @@ describe('authorshipsToContributors', () => {
     ]);
     const [bare] = authorshipsToContributors({ authorships: [{ author: { display_name: 'Solo Author' } }] });
     expect(bare.affiliation).toBeUndefined();
+  });
+});
+
+describe('splitRawAffiliations', () => {
+  it('splits combined strings on semicolons and dedupes in order', () => {
+    expect(
+      splitRawAffiliations(['Dept A, Univ X', 'Institute B', 'Dept A, Univ X; Institute B', ' dept a,  univ x ']),
+    ).toEqual(['Dept A, Univ X', 'Institute B']);
+    expect(splitRawAffiliations(undefined)).toEqual([]);
+  });
+});
+
+describe('institutionNameAppearsIn', () => {
+  it('requires every word of the institution name as a whole word in the raw text', () => {
+    expect(institutionNameAppearsIn('Lawrence Berkeley National Laboratory', 'Scientific Data Division, Lawrence Berkeley National Laboratory')).toBe(true);
+    expect(institutionNameAppearsIn('MBF Bioscience (United States)', 'MBF Bioscience')).toBe(true);
+    expect(institutionNameAppearsIn('University of California, San Francisco', 'Departments of Physiology and Psychiatry University of California, San Francisco')).toBe(true);
+    expect(institutionNameAppearsIn('Catalyst', 'CatalystNeuro')).toBe(false);
+    expect(institutionNameAppearsIn('Kavli Institute for Theoretical Sciences', 'Kavli Institute for Fundamental Neuroscience')).toBe(false);
+    expect(institutionNameAppearsIn('Harvard University', 'Department of Otolaryngology, Harvard Medical School')).toBe(false);
+  });
+});
+
+describe('resolveAffiliation', () => {
+  const authorship: OpenAlexAuthorship = {
+    author: { display_name: 'Pamela Baker' },
+    raw_affiliation_strings: ['Allen Institute for Brain Science'],
+    affiliations: [{ raw_affiliation_string: 'Allen Institute for Brain Science', institution_ids: ['I1', 'I2'] }],
+    institutions: [
+      { id: 'I2', display_name: 'Allen Institute', ror: 'https://ror.org/03cpe7c52' },
+      { id: 'I1', display_name: 'Allen Institute for Brain Science', ror: 'https://ror.org/00dcv1019' },
+    ],
+  };
+
+  it('prefers a confident ROR match', () => {
+    const rorMatches = new Map<string, RorMatch | null>([
+      ['Allen Institute for Brain Science', { name: 'Allen Institute for Brain Science', identifier: 'https://ror.org/00dcv1019' }],
+    ]);
+    expect(resolveAffiliation(authorship, 'Allen Institute for Brain Science', rorMatches)).toEqual({
+      affiliation: { schemaKey: 'Affiliation', name: 'Allen Institute for Brain Science', identifier: 'https://ror.org/00dcv1019' },
+      source: 'ror',
+    });
+  });
+
+  it('falls back to the most specific OpenAlex institution whose name appears in the text', () => {
+    const { affiliation, source } = resolveAffiliation(authorship, 'Allen Institute for Brain Science', new Map());
+    expect(source).toBe('openalex');
+    expect(affiliation.identifier).toBe('https://ror.org/00dcv1019');
+  });
+
+  it('keeps the raw text without an identifier when nothing confirms a match', () => {
+    const kavli: OpenAlexAuthorship = {
+      author: { display_name: 'Loren Frank' },
+      raw_affiliation_strings: ['Kavli Institute for Fundamental Neuroscience'],
+      institutions: [{ id: 'I3', display_name: 'Kavli Institute for Theoretical Sciences', ror: 'https://ror.org/01kv3wg35' }],
+    };
+    expect(resolveAffiliation(kavli, 'Kavli Institute for Fundamental Neuroscience', new Map())).toEqual({
+      affiliation: { schemaKey: 'Affiliation', name: 'Kavli Institute for Fundamental Neuroscience' },
+      source: 'unresolved',
+    });
+  });
+});
+
+describe('lookupRorMatch', () => {
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('returns the chosen organization from the v1 affiliation endpoint', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [
+          { chosen: false, score: 0.9, organization: { id: 'https://ror.org/zzz', names: [{ value: 'Wrong', types: ['ror_display'] }] } },
+          { chosen: true, score: 1, organization: { id: 'https://ror.org/01d74sk53', names: [{ value: 'CatalystNeuro', types: ['ror_display'] }] } },
+        ],
+      }),
+    });
+    expect(await lookupRorMatch('CatalystNeuro')).toEqual({ name: 'CatalystNeuro', identifier: 'https://ror.org/01d74sk53' });
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.ror.org/organizations?affiliation=CatalystNeuro');
+  });
+
+  it('returns null when ROR does not choose, and on errors', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [{ chosen: false, organization: { id: 'https://ror.org/x', name: 'X' } }] }) });
+    expect(await lookupRorMatch('Weill Neurohub')).toBeNull();
+    fetchMock.mockResolvedValue({ ok: false, status: 503 });
+    expect(await lookupRorMatch('Anything')).toBeNull();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    expect(await lookupRorMatch('Anything')).toBeNull();
   });
 });
 
@@ -171,7 +290,19 @@ describe('import_contributors_from_publication tool', () => {
     modifyMetadata.mockReset();
     modifyMetadata.mockReturnValue({ success: true });
     fetchMock.mockReset();
-    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => fixture });
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('https://api.ror.org/')) {
+        const raw = decodeURIComponent(url.split('affiliation=')[1]);
+        const chosen =
+          raw === 'CatalystNeuro'
+            ? { id: 'https://ror.org/01d74sk53', names: [{ value: 'CatalystNeuro', types: ['ror_display'] }] }
+            : raw.includes('Lawrence Berkeley National Laboratory')
+              ? { id: 'https://ror.org/02jbv0t02', names: [{ value: 'Lawrence Berkeley National Laboratory', types: ['ror_display'] }] }
+              : null;
+        return { ok: true, status: 200, json: async () => ({ items: chosen ? [{ chosen: true, score: 1, organization: chosen }] : [] }) };
+      }
+      return { ok: true, status: 200, json: async () => fixture };
+    });
     vi.stubGlobal('fetch', fetchMock);
   });
 
@@ -190,6 +321,13 @@ describe('import_contributors_from_publication tool', () => {
     );
     expect(parsed).toMatchObject({ success: true, applied: true, doi: '10.7554/eLife.78362', authorCount: 4 });
     expect(parsed.added).toHaveLength(4);
+    expect(parsed.affiliationSources).toEqual({ ror: 4, openalex: 0, unresolved: 0 });
+    expect(parsed.unresolvedAffiliations).toEqual([]);
+    expect(parsed.contributors[3].affiliation).toEqual([
+      { schemaKey: 'Affiliation', name: 'CatalystNeuro', identifier: 'https://ror.org/01d74sk53' },
+    ]);
+    // one OpenAlex request plus one ROR request per distinct raw affiliation
+    expect(fetchMock).toHaveBeenCalledTimes(1 + 3);
     expect(modifyMetadata).toHaveBeenCalledTimes(1);
     const [op, path, value] = modifyMetadata.mock.calls[0];
     expect(op).toBe('set');
@@ -205,9 +343,11 @@ describe('import_contributors_from_publication tool', () => {
     expect(modifyMetadata).not.toHaveBeenCalled();
   });
 
-  it('does nothing when every author is already present', async () => {
-    const existing = authorshipsToContributors(work);
-    const { result } = await importContributorsTool.execute({ doi: '10.7554/eLife.78362' }, context(existing));
+  it('does nothing when every author is already present with the same details', async () => {
+    const preview = JSON.parse(
+      (await importContributorsTool.execute({ doi: '10.7554/eLife.78362', dryRun: true }, context([]))).result,
+    );
+    const { result } = await importContributorsTool.execute({ doi: '10.7554/eLife.78362' }, context(preview.contributors));
     expect(JSON.parse(result).applied).toBe(false);
     expect(modifyMetadata).not.toHaveBeenCalled();
   });
@@ -218,6 +358,18 @@ describe('import_contributors_from_publication tool', () => {
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(false);
     expect(parsed.error).toContain('/contributor/0');
+  });
+
+  it('reports unresolved affiliations when neither ROR nor OpenAlex confirms them', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url.startsWith('https://api.ror.org/')
+        ? { ok: true, status: 200, json: async () => ({ items: [] }) }
+        : { ok: true, status: 200, json: async () => fixture },
+    );
+    const { result } = await importContributorsTool.execute({ doi: '10.7554/eLife.78362', dryRun: true }, context([]));
+    const parsed = JSON.parse(result);
+    expect(parsed.affiliationSources).toEqual({ ror: 0, openalex: 3, unresolved: 1 });
+    expect(parsed.unresolvedAffiliations).toEqual([{ author: 'Dichter, Ben', affiliation: 'CatalystNeuro' }]);
   });
 
   it('handles an unknown DOI and an input with no DOI', async () => {

@@ -19,7 +19,18 @@
         }
       ],
       "is_corresponding": false,
-      "raw_author_name": "Oliver Rübel"
+      "raw_author_name": "Oliver Rübel",
+      "raw_affiliation_strings": [
+        "Scientific Data Division, Lawrence Berkeley National Laboratory"
+      ],
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Scientific Data Division, Lawrence Berkeley National Laboratory",
+          "institution_ids": [
+            "https://openalex.org/I148283060"
+          ]
+        }
+      ]
     },
     {
       "author_position": "middle",
@@ -37,7 +48,18 @@
         }
       ],
       "is_corresponding": false,
-      "raw_author_name": "Andrew Tritt"
+      "raw_author_name": "Andrew Tritt",
+      "raw_affiliation_strings": [
+        "Applied Mathematics and Computational Research Division, Lawrence Berkeley National Laboratory"
+      ],
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Applied Mathematics and Computational Research Division, Lawrence Berkeley National Laboratory",
+          "institution_ids": [
+            "https://openalex.org/I148283060"
+          ]
+        }
+      ]
     },
     {
       "author_position": "middle",
@@ -55,7 +77,18 @@
         }
       ],
       "is_corresponding": false,
-      "raw_author_name": "Ryan Ly"
+      "raw_author_name": "Ryan Ly",
+      "raw_affiliation_strings": [
+        "Scientific Data Division, Lawrence Berkeley National Laboratory"
+      ],
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Scientific Data Division, Lawrence Berkeley National Laboratory",
+          "institution_ids": [
+            "https://openalex.org/I148283060"
+          ]
+        }
+      ]
     },
     {
       "author_position": "middle",
@@ -73,7 +106,18 @@
         }
       ],
       "is_corresponding": false,
-      "raw_author_name": "Benjamin K Dichter"
+      "raw_author_name": "Benjamin K Dichter",
+      "raw_affiliation_strings": [
+        "CatalystNeuro"
+      ],
+      "affiliations": [
+        {
+          "raw_affiliation_string": "CatalystNeuro",
+          "institution_ids": [
+            "https://openalex.org/I4210102307"
+          ]
+        }
+      ]
     }
   ]
 }
