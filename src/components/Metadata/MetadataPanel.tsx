@@ -8,6 +8,7 @@ import { CommitButton } from '../Controls/CommitButton';
 import { DandisetInfo } from './DandisetInfo';
 import { JsonEditorDialog } from './JsonEditorDialog';
 import { ChangesSummary } from './ChangesSummary';
+import { ChecklistPanel } from './ChecklistPanel';
 import { EditableMetadataView } from './EditableMetadataView';
 
 interface MetadataPanelProps {
@@ -95,6 +96,9 @@ export function MetadataPanel({ isReviewMode = false, onExitReviewMode }: Metada
           <>
             {/* Dandiset Info */}
             <DandisetInfo />
+
+            {/* Live quality checklist computed from the current metadata */}
+            <ChecklistPanel />
 
             {/* Changes Summary - appears at top when there are pending changes */}
             <ChangesSummary original={originalMetadata} modified={modifiedMetadata} />
