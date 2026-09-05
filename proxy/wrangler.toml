@@ -2,7 +2,8 @@ name = "dandi-medit-cors-proxy"
 main = "worker.js"
 compatibility_date = "2026-09-01"
 
-# Origins the proxy will serve, comma separated. Requests from any other
-# origin, or with no Origin header, get a 403.
+# Origins the proxy will serve, comma separated. A leading "*." matches one
+# host label, which covers the pull request previews on Cloudflare Pages.
+# Requests from any other origin, or with no Origin header, get a 403.
 [vars]
-ALLOWED_ORIGINS = "https://medit.dandiarchive.org,http://localhost:5173"
+ALLOWED_ORIGINS = "https://medit.dandiarchive.org,https://*.dandi-medit.pages.dev,http://localhost:5173"

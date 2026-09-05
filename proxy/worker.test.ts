@@ -13,6 +13,16 @@ describe('parseAllowedOrigins and isAllowedOrigin', () => {
     expect(origins).toEqual(['https://medit.dandiarchive.org', 'http://localhost:5173']);
   });
 
+  it('matches a single wildcard host label for preview deployments', () => {
+    const withPreviews = parseAllowedOrigins('https://medit.dandiarchive.org,https://*.dandi-medit.pages.dev');
+    expect(isAllowedOrigin('https://feat-x.dandi-medit.pages.dev', withPreviews)).toBe(true);
+    expect(isAllowedOrigin('https://abc123.dandi-medit.pages.dev/', withPreviews)).toBe(true);
+    expect(isAllowedOrigin('https://dandi-medit.pages.dev', withPreviews)).toBe(false);
+    expect(isAllowedOrigin('https://a.b.dandi-medit.pages.dev', withPreviews)).toBe(false);
+    expect(isAllowedOrigin('https://evil.dandi-medit.pages.dev.attacker.example', withPreviews)).toBe(false);
+    expect(isAllowedOrigin('http://feat-x.dandi-medit.pages.dev', withPreviews)).toBe(false);
+  });
+
   it('accepts listed origins and rejects others or none', () => {
     expect(isAllowedOrigin('https://medit.dandiarchive.org', origins)).toBe(true);
     expect(isAllowedOrigin('http://localhost:5173', origins)).toBe(true);

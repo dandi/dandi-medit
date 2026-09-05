@@ -1,0 +1,46 @@
+name: Preview Build
+
+# Builds the site for pull request previews. This workflow uses no secrets,
+# so it runs the same way for same-repo branches and fork PRs (GitHub
+# withholds repository secrets from pull_request runs of fork code). The
+# built site is uploaded as an artifact and the separate Preview Deploy
+# workflow, which runs in this repository's context with secrets, deploys
+# it to Cloudflare Pages.
+
+on:
+  pull_request:
+    branches: ['main']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          # The proxy template is public (it is in the production bundle), so
+          # it is kept as a repository variable rather than a secret and is
+          # available to fork builds too.
+          VITE_CORS_PROXY_URL: ${{ vars.VITE_CORS_PROXY_URL }}
+
+      - name: Upload built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-dist
+          path: dist
+          retention-days: 3

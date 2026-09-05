@@ -29,10 +29,23 @@ export function parseAllowedOrigins(value) {
     .filter(Boolean);
 }
 
-/** True when the request Origin is one the proxy serves. */
+/**
+ * True when the request Origin is one the proxy serves. An entry may carry a
+ * single leading wildcard for the first host label, such as
+ * "https://*.dandi-medit.pages.dev", which matches every pull request
+ * preview deployment.
+ */
 export function isAllowedOrigin(origin, allowedOrigins) {
   if (!origin) return false;
-  return allowedOrigins.includes(origin.replace(/\/+$/, ""));
+  const normalized = origin.replace(/\/+$/, "");
+  return allowedOrigins.some((allowed) => {
+    if (!allowed.includes("*")) return normalized === allowed;
+    const [scheme, host] = allowed.split("://");
+    if (!host || !host.startsWith("*.")) return false;
+    const suffix = host.slice(1); // ".dandi-medit.pages.dev"
+    const originHost = normalized.startsWith(`${scheme}://`) ? normalized.slice(scheme.length + 3) : null;
+    return !!originHost && originHost.endsWith(suffix) && !originHost.slice(0, -suffix.length).includes(".") && originHost.length > suffix.length;
+  });
 }
 
 /** True when the target URL is https and on the shared domain allowlist. */

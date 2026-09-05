@@ -15,7 +15,7 @@ npx wrangler deploy
 
 The first command opens a browser window to authorize the CLI. The second prints the worker URL, which looks like `https://dandi-medit-cors-proxy.<account>.workers.dev`. If you deploy under a different name or a custom domain, adjust accordingly.
 
-If the app is ever served from another origin, add it to `ALLOWED_ORIGINS` in `wrangler.toml` and deploy again.
+`ALLOWED_ORIGINS` also accepts a leading `*.` for one host label, which is how pull request previews on Cloudflare Pages (`https://<branch>.dandi-medit.pages.dev`) are covered. If the app is ever served from another origin, add it there and deploy again.
 
 ## Pointing the App at It
 
