@@ -16,6 +16,7 @@
  */
 
 import allowedDomains from "../src/chat/tools/allowedDomains.json";
+import { handleAssess } from "./assess.js";
 
 const FETCH_TIMEOUT_MS = 20000;
 const USER_AGENT =
@@ -73,8 +74,8 @@ export function parseTargetUrl(requestUrl) {
 function corsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-    "Access-Control-Allow-Headers": "Accept",
+    "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Accept, Content-Type",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
@@ -101,6 +102,12 @@ export default {
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
+    }
+
+    // Model assessment of the checklist's judgment items, cached in KV.
+    if (new URL(request.url).pathname === "/assess") {
+      if (request.method !== "POST") return reject(405, "Use POST for /assess", origin);
+      return handleAssess(request, env, corsHeaders(origin));
     }
 
     if (request.method !== "GET" && request.method !== "HEAD") {

@@ -11,6 +11,21 @@
 const URL_TOKEN = "{url}";
 
 /**
+ * The origin of the configured worker (scheme and host of the proxy
+ * template), or null when none is configured. Other worker routes such as
+ * /assess live on the same origin.
+ */
+export function getWorkerOrigin(): string | null {
+  const template = import.meta.env.VITE_CORS_PROXY_URL?.trim();
+  if (!template) return null;
+  try {
+    return new URL(template.replace(URL_TOKEN, "x")).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build the proxied form of a URL, or return null when no proxy is configured.
  */
 export function getProxiedUrl(url: string): string | null {

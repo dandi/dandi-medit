@@ -6,4 +6,19 @@ compatibility_date = "2026-09-01"
 # host label, which covers the pull request previews on Cloudflare Pages.
 # Requests from any other origin, or with no Origin header, get a 403.
 [vars]
+# Model used for checklist assessments (see assess.js). The OpenRouter key
+# is a secret: npx wrangler secret put OPENROUTER_API_KEY
+ASSESS_MODEL = "deepseek/deepseek-v4-flash-0731"
 ALLOWED_ORIGINS = "https://medit.dandiarchive.org,https://*.dandi-medit.pages.dev,http://localhost:5173"
+
+# Cache of model assessments for the metadata checklist, keyed by a hash of
+# the rubric version, model, title and description.
+[[kv_namespaces]]
+binding = "ASSESSMENTS"
+id = "04d4ba7da9434ce9921f0132bc42f050"
+
+# Cache misses cost a model call, so they are limited per client IP.
+[[ratelimits]]
+name = "ASSESS_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }

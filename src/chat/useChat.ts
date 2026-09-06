@@ -11,7 +11,7 @@ import { fetchSchema } from "../schemas/schemaService";
 import { parseSuggestions } from "./parseSuggestions";
 import { getStoredModel, setStoredModel } from "./apiKeyStorage";
 import { computeDelta, deltaToChanges, formatValue } from "../core/metadataDiff";
-import { computeChecklist, formatChecklistForPrompt } from "../core/checklist";
+import { computeChecklist, formatChecklistForPrompt, type ChecklistAssessment } from "../core/checklist";
 import { parseCompletionStream } from "./parseCompletionStream";
 import {
   COMPLETION_URL,
@@ -48,10 +48,10 @@ Notes on individual items:
 - The description should say what was recorded, from what subjects, how, and why, in a few sentences. Listing every data stream type is not needed; the asset summary covers that.`;
 
 /** The checklist section of the prompt for a given metadata object. */
-const buildChecklistBlock = (metadata: any): string =>
+const buildChecklistBlock = (metadata: any, assessment?: ChecklistAssessment): string =>
   `${CHECKLIST_NOTES}
 
-${formatChecklistForPrompt(computeChecklist(metadata))}`;
+${formatChecklistForPrompt(computeChecklist(metadata, assessment))}`;
 
 /**
  * Describe the pending (unsaved) changes between the original and the current
@@ -159,6 +159,8 @@ interface UseChatOptions {
   dandisetId: string;
   version: string;
   versionInfo?: any;
+  /** Model assessment of the checklist's judgment items, when available. */
+  checklistAssessment?: ChecklistAssessment;
 }
 
 /**
@@ -195,7 +197,7 @@ const convertConversationToPlainText = (messages: ChatMessage[]): string => {
 };
 
 const useChat = (options: UseChatOptions) => {
-  const { originalMetadata, modifiedMetadata, modifyMetadata, dandisetId, version, versionInfo } = options;
+  const { originalMetadata, modifiedMetadata, modifyMetadata, dandisetId, version, versionInfo, checklistAssessment } = options;
 
   const [chat, setChat] = useState<Chat>(() => ({
     ...emptyChat,
@@ -310,7 +312,7 @@ Your role is to help users understand and improve their dandiset metadata by:
 - Suggestions must be phrased as USER messages (they get submitted as if the user typed them)
 - Make suggestions relevant to the current context and conversation
 
-${buildChecklistBlock(modifiedMetadata)}
+${buildChecklistBlock(modifiedMetadata, checklistAssessment)}
 
 Use this checklist to guide your suggestions. When the user asks for a review, show the checklist as computed and explain what each failing item needs.
 
@@ -399,7 +401,7 @@ ${pendingChanges}
     }
 
     return parts.join("\n\n");
-  }, [originalMetadata, modifiedMetadata, dandisetId, version, versionInfo, tools, metadataDocs, dandisetSchema]);
+  }, [originalMetadata, modifiedMetadata, dandisetId, version, versionInfo, tools, metadataDocs, dandisetSchema, checklistAssessment]);
 
   const generateResponse = useCallback(
     async (currentChat: Chat) => {
@@ -711,7 +713,7 @@ ${buildRulesBlock()}
 
 Your task is to suggest short prompts a user might send to improve the metadata of dandiset ${dandisetId} (version ${version}). Format your suggestions as a single line starting with "suggestions:" followed by comma-separated prompts. If a suggestion contains a comma, wrap it in double quotes. Suggestions must be phrased as messages the user would send (for example: suggestions: Suggest keywords, Review contributors, Improve description).
 
-${buildChecklistBlock(modifiedMetadata)}
+${buildChecklistBlock(modifiedMetadata, checklistAssessment)}
 
 ## Current Metadata (JSON)
 \`\`\`json
@@ -763,7 +765,7 @@ ${JSON.stringify(modifiedMetadata, null, 2)}
     } finally {
       setLoadingInitialSuggestions(false);
     }
-  }, [originalMetadata, modifiedMetadata, dandisetId, version, chat.model]);
+  }, [originalMetadata, modifiedMetadata, dandisetId, version, chat.model, checklistAssessment]);
 
   // Trigger initial suggestions fetch when metadata is available
   useEffect(() => {

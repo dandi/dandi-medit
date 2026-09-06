@@ -46,6 +46,7 @@ export function ChatPanel() {
     version,
     modifyMetadata,
     isLoading,
+    checklistAssessment,
   } = useMetadataContext();
 
   const {
@@ -72,6 +73,7 @@ export function ChatPanel() {
     dandisetId,
     version,
     versionInfo,
+    checklistAssessment: checklistAssessment.assessment,
   });
 
   const [newPrompt, setNewPrompt] = useState<string>("");

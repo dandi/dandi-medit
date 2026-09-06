@@ -8,6 +8,7 @@ import {
   type MetadataOperationType
 } from '../core/metadataOperations';
 import { hasDifferences } from '../core/metadataDiff';
+import { useChecklistAssessment } from './useChecklistAssessment';
 import { loadSchemaForInstance } from '../schemas/schemaService';
 import { findNewValidationErrors, formatValidationErrors, validateFullMetadata } from '../schemas/validateMetadata';
 import type { DandisetMetadata, DandisetVersionInfo } from '../types/dandiset';
@@ -140,6 +141,8 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
   }, [originalMetadata]);
 
   const effectiveMetadata = modifiedMetadata || originalMetadata;
+  const checklistAssessment = useChecklistAssessment(effectiveMetadata);
+
   const hasChanges = useMemo(
     () => hasDifferences(originalMetadata, effectiveMetadata),
     [originalMetadata, effectiveMetadata]
@@ -180,6 +183,7 @@ export function MetadataProvider({ children }: { children: ReactNode }) {
     setOriginalMetadata: setOriginalMetadata1,
     setModifiedMetadata: setModifiedMetadata1,
     hasChanges,
+    checklistAssessment,
     clearModifications
   };
 

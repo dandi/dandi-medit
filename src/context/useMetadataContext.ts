@@ -4,6 +4,7 @@ import type { MetadataOperationType } from '../core/metadataOperations';
 import type { DandisetMetadata, DandisetVersionInfo } from '../types/dandiset';
 import type { StorageType } from '../utils/dandiApiKeyStorage';
 import type { DandiInstance } from '../utils/dandiInstances';
+import type { ChecklistAssessmentState } from './useChecklistAssessment';
 
 export interface MetadataContextType {
   // Current dandiset info
@@ -42,6 +43,9 @@ export interface MetadataContextType {
 
   // Whether modifiedMetadata differs from originalMetadata
   hasChanges: boolean;
+
+  // Model assessment of the checklist's judgment items for the current metadata
+  checklistAssessment: ChecklistAssessmentState;
 
   clearModifications: () => void;
 
