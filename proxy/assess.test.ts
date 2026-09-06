@@ -65,6 +65,15 @@ describe('parseAssessment', () => {
     expect(parseAssessment(undefined as unknown as string)).toBeNull();
   });
 
+  it('recovers verdicts when a reason contains an unescaped double quote', () => {
+    const text = '{"titleInformative": {"pass": true, "reason": "Names "motor cortex" and the cell types."}, "descriptionInformative": {"pass": false, "reason": "Restates the title."}, "methodologySummary": {"pass": true, "reason": "Patch-seq recordings."}}';
+    expect(parseAssessment(text)).toEqual({
+      titleInformative: { pass: true, reason: 'Names "motor cortex" and the cell types.' },
+      descriptionInformative: { pass: false, reason: 'Restates the title.' },
+      methodologySummary: { pass: true, reason: 'Patch-seq recordings.' },
+    });
+  });
+
   it('trims and caps the reasons', () => {
     const long = { ...verdict, titleInformative: { pass: true, reason: '  ' + 'x'.repeat(500) } };
     expect(parseAssessment(JSON.stringify(long))!.titleInformative.reason).toHaveLength(300);
@@ -108,6 +117,8 @@ describe('handleAssess', () => {
       const body = JSON.parse(init.body as string);
       expect(body.model).toBe('custom/model');
       expect(body.messages[1].content).toContain('My title');
+      expect(body.max_tokens).toBeGreaterThanOrEqual(1000);
+      expect(body.response_format).toEqual({ type: 'json_object' });
       return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(verdict) } }] }) };
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -125,11 +136,20 @@ describe('handleAssess', () => {
     expect(stored.assessment).toEqual(verdict);
   });
 
+  it('falls back to the reasoning field when the content is empty', async () => {
+    const kv = fakeKv();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ choices: [{ finish_reason: 'length', message: { content: '', reasoning: 'Thinking... ' + JSON.stringify(verdict) } }] }) })));
+    const res = await handleAssess(request({ title: 'T', description: 'D' }), { ASSESSMENTS: kv, OPENROUTER_API_KEY: 'k' }, headers);
+    expect(res.status).toBe(200);
+    expect((await res.json()).assessment).toEqual(verdict);
+  });
+
   it('does not cache a malformed model reply', async () => {
     const kv = fakeKv();
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: 'not json' } }] }) })));
     const res = await handleAssess(request({ title: 'T', description: 'D' }), { ASSESSMENTS: kv, OPENROUTER_API_KEY: 'k' }, headers);
     expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ detail: 'not json', finishReason: null });
     expect(kv.put).not.toHaveBeenCalled();
   });
 

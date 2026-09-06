@@ -31,7 +31,7 @@ descriptionInformative: The description, in a few sentences, says what was recor
 
 methodologySummary: The description names the recording modality or technique (for example silicon probe extracellular recording, two-photon calcium imaging, patch clamp, fMRI) and the experimental paradigm or behavioral task, or states that the recordings were at rest or anesthetized. Mentioning analysis methods alone does not satisfy this.
 
-Each "reason" is one short sentence (under 25 words) a curator can act on: for a pass, what satisfies the criterion; for a fail, what is missing. Judge only the text you are given. Do not invent details.`;
+Each "reason" is one short sentence (under 25 words) a curator can act on: for a pass, what satisfies the criterion; for a fail, what is missing. Do not use double quotes inside a reason; paraphrase instead of quoting. Judge only the text you are given. Do not invent details.`;
 
 /** Build the chat messages for the model. */
 export function buildAssessmentMessages(title, description) {
@@ -57,6 +57,34 @@ export async function buildAssessmentKey(model, title, description) {
   return `assess:v${RUBRIC_VERSION}:${hash}`;
 }
 
+function verdictsFromObject(parsed) {
+  const result = {};
+  for (const item of ASSESSMENT_ITEMS) {
+    const verdict = parsed?.[item];
+    if (!verdict || typeof verdict.pass !== "boolean" || typeof verdict.reason !== "string") return null;
+    result[item] = { pass: verdict.pass, reason: verdict.reason.trim().slice(0, 300) };
+  }
+  return result;
+}
+
+/**
+ * Recover the three verdicts from text that is nearly JSON, for example when
+ * a reason contains an unescaped double quote. Each item is matched on its
+ * own; the reason runs up to the closing quote that precedes the item's
+ * closing brace, so inner quotes are tolerated.
+ */
+function verdictsFromText(text) {
+  const result = {};
+  for (const item of ASSESSMENT_ITEMS) {
+    const match = new RegExp(
+      `"${item}"\\s*:\\s*\\{[^}]*?"pass"\\s*:\\s*(true|false)[^}]*?"reason"\\s*:\\s*"([\\s\\S]*?)"\\s*\\}`,
+    ).exec(text);
+    if (!match) return null;
+    result[item] = { pass: match[1] === "true", reason: match[2].trim().slice(0, 300) };
+  }
+  return result;
+}
+
 /**
  * Extract and validate the model's JSON verdict. Returns null when the text
  * does not contain a usable object, so a malformed reply is never cached.
@@ -66,19 +94,14 @@ export function parseAssessment(text) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end <= start) return null;
-  let parsed;
+  const slice = text.slice(start, end + 1);
   try {
-    parsed = JSON.parse(text.slice(start, end + 1));
+    const fromJson = verdictsFromObject(JSON.parse(slice));
+    if (fromJson) return fromJson;
   } catch {
-    return null;
+    // fall through to the tolerant extraction
   }
-  const result = {};
-  for (const item of ASSESSMENT_ITEMS) {
-    const verdict = parsed?.[item];
-    if (!verdict || typeof verdict.pass !== "boolean" || typeof verdict.reason !== "string") return null;
-    result[item] = { pass: verdict.pass, reason: verdict.reason.trim().slice(0, 300) };
-  }
-  return result;
+  return verdictsFromText(slice);
 }
 
 /** Validate the request body. Returns { title, description } or { error }. */
@@ -106,7 +129,11 @@ async function callModel(env, model, title, description) {
       model,
       messages: buildAssessmentMessages(title, description),
       temperature: 0,
-      max_tokens: 400,
+      // Reasoning models spend tokens thinking before they answer, and the
+      // budget covers both, so leave plenty of room and keep the thinking short.
+      max_tokens: 2000,
+      reasoning: { effort: "low" },
+      response_format: { type: "json_object" },
     }),
     signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
   });
@@ -115,7 +142,15 @@ async function callModel(env, model, title, description) {
     throw new Error(`Model request failed with ${response.status}${text ? `: ${text.slice(0, 200)}` : ""}`);
   }
   const data = await response.json();
-  return data?.choices?.[0]?.message?.content ?? "";
+  const choice = data?.choices?.[0];
+  const message = choice?.message ?? {};
+  return {
+    content: typeof message.content === "string" ? message.content : "",
+    // Some reasoning models put the answer in the reasoning field when the
+    // content budget runs out; keep it as a fallback source.
+    reasoning: typeof message.reasoning === "string" ? message.reasoning : "",
+    finishReason: choice?.finish_reason ?? null,
+  };
 }
 
 /**
@@ -156,15 +191,20 @@ export async function handleAssess(request, env, headers) {
     if (!success) return json(429, { error: "Too many assessment requests; try again in a minute" });
   }
 
-  let text;
+  let reply;
   try {
-    text = await callModel(env, model, title, description);
+    reply = await callModel(env, model, title, description);
   } catch (error) {
     return json(502, { error: error instanceof Error ? error.message : "Model request failed" });
   }
-  const assessment = parseAssessment(text);
+  const assessment = parseAssessment(reply.content) || parseAssessment(reply.reasoning);
   if (!assessment) {
-    return json(502, { error: "The model did not return a usable assessment" });
+    console.warn("Unparseable assessment reply:", reply.finishReason, reply.content.slice(0, 500));
+    return json(502, {
+      error: "The model did not return a usable assessment",
+      finishReason: reply.finishReason,
+      detail: (reply.content || reply.reasoning).slice(0, 500),
+    });
   }
 
   if (env.ASSESSMENTS) {
