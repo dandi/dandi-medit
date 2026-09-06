@@ -11,6 +11,7 @@ import { fetchSchema } from "../schemas/schemaService";
 import { parseSuggestions } from "./parseSuggestions";
 import { getStoredModel, setStoredModel } from "./apiKeyStorage";
 import { computeDelta, deltaToChanges, formatValue } from "../core/metadataDiff";
+import { computeChecklist, formatChecklistForPrompt } from "../core/checklist";
 import { parseCompletionStream } from "./parseCompletionStream";
 import {
   COMPLETION_URL,
@@ -36,21 +37,21 @@ const PHRASES_TO_CHECK = [
 const buildRulesBlock = (): string =>
   PHRASES_TO_CHECK.map(phrase => `- ${phrase}`).join('\n');
 
-const METADATA_QUALITY_CHECKLIST = `## Metadata Quality Checklist
+const CHECKLIST_NOTES = `## Metadata Quality Checklist
 
-When reviewing or improving dandiset metadata, consider the following checklist:
-- [ ] Is the title informative?
-- [ ] Is the description informative?
-- [ ] Does the description mention data stream types?
-- [ ] Does it include a brief methodology summary?
-- [ ] Are associated publications mentioned (and added to related publications)? Do they have DOIs, repository listed, and correct relation?
-- [ ] Are authors listed as contributors with ORCIDS?
-- [ ] Are there institutional affiliations with ROR identifiers for contributors?
-- [ ] Are funders provided with correct award numbers and ROR identifiers? Award numbers should be ONLY the number/identifier itself (e.g., "276693517"), never prefixed with words like "project number", "grant", "award", etc.
-- [ ] Are the relevant anatomical structure, brain regions, diseases, and cognitive concepts included in the about field?
-- [ ] Is the license specified and appropriate?
-- [ ] If an ethics protocol number is present in the paper, is it included in the metadata?
-- [ ] Are keywords provided? Keywords should be specific and informative (e.g., "long-term memory", "grid cells", "optogenetics"), NOT broad generic terms like "neuroscience", "brain", or "data" that can already be inferred from other metadata fields. Each keyword should add unique search value beyond what the title, description, species, anatomy, and other structured fields already convey.`;
+The checklist below is computed from the current metadata by the app; the panel next to the chat shows the same result. Report it as given. Do not mark an item done unless the metadata satisfies it, and focus your suggestions on the items that fail. Items marked [?] are judgment calls that have not been assessed yet.
+
+Notes on individual items:
+- Award numbers should be ONLY the number/identifier itself (e.g., "276693517"), never prefixed with words like "project number", "grant", "award".
+- Keywords should be specific and informative (e.g., "long-term memory", "grid cells", "optogenetics"), NOT broad generic terms like "neuroscience", "brain", or "data" that can already be inferred from other metadata fields.
+- An ethics approval (IRB or IACUC protocol number) is expected on every dandiset. If the paper does not state one, ask the user for it; never invent or stub one.
+- The description should say what was recorded, from what subjects, how, and why, in a few sentences. Listing every data stream type is not needed; the asset summary covers that.`;
+
+/** The checklist section of the prompt for a given metadata object. */
+const buildChecklistBlock = (metadata: any): string =>
+  `${CHECKLIST_NOTES}
+
+${formatChecklistForPrompt(computeChecklist(metadata))}`;
 
 /**
  * Describe the pending (unsaved) changes between the original and the current
@@ -309,10 +310,9 @@ Your role is to help users understand and improve their dandiset metadata by:
 - Suggestions must be phrased as USER messages (they get submitted as if the user typed them)
 - Make suggestions relevant to the current context and conversation
 
-${METADATA_QUALITY_CHECKLIST}
+${buildChecklistBlock(modifiedMetadata)}
 
-Use this checklist to guide your suggestions and help users improve their metadata quality.
-Provide this checklist in the chat, checking boxes off as they are completed.
+Use this checklist to guide your suggestions. When the user asks for a review, show the checklist as computed and explain what each failing item needs.
 
 Guidelines:
 - When proposing changes, always use the propose_metadata_change tool
@@ -711,7 +711,7 @@ ${buildRulesBlock()}
 
 Your task is to suggest short prompts a user might send to improve the metadata of dandiset ${dandisetId} (version ${version}). Format your suggestions as a single line starting with "suggestions:" followed by comma-separated prompts. If a suggestion contains a comma, wrap it in double quotes. Suggestions must be phrased as messages the user would send (for example: suggestions: Suggest keywords, Review contributors, Improve description).
 
-${METADATA_QUALITY_CHECKLIST}
+${buildChecklistBlock(modifiedMetadata)}
 
 ## Current Metadata (JSON)
 \`\`\`json
