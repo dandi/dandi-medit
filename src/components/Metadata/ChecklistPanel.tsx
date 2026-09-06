@@ -5,7 +5,9 @@ import {
   AccordionSummary,
   Box,
   Chip,
+  CircularProgress,
   LinearProgress,
+  Link,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -14,17 +16,13 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import ChecklistIcon from '@mui/icons-material/Checklist';
-import { computeChecklist, summarizeChecklist, type ChecklistAssessment, type ChecklistItem } from '../../core/checklist';
+import { computeChecklist, summarizeChecklist, type ChecklistItem } from '../../core/checklist';
 import { useMetadataContext } from '../../context/useMetadataContext';
 
-interface ChecklistPanelProps {
-  /** Model assessment of the judgment items, when available. */
-  assessment?: ChecklistAssessment;
-}
-
-function StatusIcon({ status }: { status: ChecklistItem['status'] }) {
+function StatusIcon({ status, loading }: { status: ChecklistItem['status']; loading: boolean }) {
   if (status === 'pass') return <CheckCircleIcon fontSize="small" color="success" />;
   if (status === 'fail') return <CancelIcon fontSize="small" color="error" />;
+  if (loading) return <CircularProgress size={16} sx={{ m: 0.25 }} />;
   return <HourglassEmptyIcon fontSize="small" color="disabled" />;
 }
 
@@ -33,8 +31,9 @@ function StatusIcon({ status }: { status: ChecklistItem['status'] }) {
  * carries the score. Rule-based items are computed from the current
  * (modified) metadata, so pending edits update them immediately.
  */
-export function ChecklistPanel({ assessment }: ChecklistPanelProps) {
-  const { modifiedMetadata } = useMetadataContext();
+export function ChecklistPanel() {
+  const { modifiedMetadata, checklistAssessment } = useMetadataContext();
+  const { assessment, status: assessmentStatus, error: assessmentError, retry } = checklistAssessment;
   const [expanded, setExpanded] = useState(false);
   const items = useMemo(() => computeChecklist(modifiedMetadata, assessment), [modifiedMetadata, assessment]);
   const summary = useMemo(() => summarizeChecklist(items), [items]);
@@ -44,6 +43,16 @@ export function ChecklistPanel({ assessment }: ChecklistPanelProps) {
   const complete = summary.rulesPassed === summary.rulesTotal;
   const percent = summary.rulesTotal > 0 ? Math.round((summary.rulesPassed / summary.rulesTotal) * 100) : 0;
   const failing = items.filter((i) => i.status === 'fail');
+  const assessing = assessmentStatus === 'loading';
+  // What to show under a pending judgment item instead of its default detail.
+  const pendingDetail =
+    assessmentStatus === 'loading'
+      ? 'Assessing...'
+      : assessmentStatus === 'error'
+        ? `Assessment unavailable: ${assessmentError}`
+        : assessmentStatus === 'unavailable'
+          ? 'Assessment is not configured for this deployment.'
+          : null;
 
   return (
     <Accordion
@@ -67,7 +76,7 @@ export function ChecklistPanel({ assessment }: ChecklistPanelProps) {
           <Chip
             size="small"
             color={complete ? 'success' : 'default'}
-            label={`${summary.rulesPassed} / ${summary.rulesTotal}${summary.pending > 0 ? ` · ${summary.pending} to assess` : ''}`}
+            label={`${summary.rulesPassed} / ${summary.rulesTotal}${summary.pending > 0 ? (assessing ? ' · assessing' : ` · ${summary.pending} to assess`) : ''}`}
             onClick={(e) => e.stopPropagation()}
           />
         </Tooltip>
@@ -83,14 +92,22 @@ export function ChecklistPanel({ assessment }: ChecklistPanelProps) {
           {items.map((item) => (
             <Box component="li" key={item.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
               <Box sx={{ mt: 0.25, display: 'flex' }}>
-                <StatusIcon status={item.status} />
+                <StatusIcon status={item.status} loading={assessing && item.kind === 'assessment'} />
               </Box>
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: item.status === 'fail' ? 600 : 400 }}>
                   {item.label}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
-                  {item.detail}
+                  {item.status === 'pending' && pendingDetail ? pendingDetail : item.detail}
+                  {item.status === 'pending' && assessmentStatus === 'error' && (
+                    <>
+                      {' '}
+                      <Link component="button" variant="caption" onClick={retry}>
+                        Retry
+                      </Link>
+                    </>
+                  )}
                 </Typography>
               </Box>
             </Box>

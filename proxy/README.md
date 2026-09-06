@@ -4,6 +4,16 @@ The Dandiset Metadata Assistant runs entirely in the browser, and most publisher
 
 The worker is intentionally narrow. It only answers requests whose `Origin` header is in `ALLOWED_ORIGINS`, it only forwards `GET` and `HEAD`, and it only fetches targets whose hostname is on the same domain allowlist that `fetch_url` uses in the app (`src/chat/tools/allowedDomains.json`, imported by both). Upstream cookies are not passed through, and the upstream request times out after twenty seconds. The free Cloudflare plan allows one hundred thousand requests per day, which is far more than the app needs.
 
+## Checklist Assessment
+
+The worker also answers `POST /assess` with `{ "title": ..., "description": ... }`. The app's metadata checklist computes most of its items from the metadata, but three are judgment calls (is the title informative, is the description informative, does it summarize the methodology) and are answered by a model against a fixed rubric in `assess.js`. The verdict is a pure function of the rubric version, the model, the title and the description, so it is cached in the `ASSESSMENTS` KV namespace under a hash of those, and the same text is only ever assessed once for everyone. Only the worker writes to the cache, after a real model call, and cache misses are rate limited per client IP. The route needs an OpenRouter key on the worker:
+
+```bash
+npx wrangler secret put OPENROUTER_API_KEY
+```
+
+Without it the route returns 503 and the app shows the three items as not assessable. `ASSESS_MODEL` in `wrangler.toml` selects the model; bump `RUBRIC_VERSION` in `assess.js` when the rubric changes so that old verdicts are not reused.
+
 ## Deploying
 
 Deployment needs a Cloudflare account and the `wrangler` CLI, which is fetched by `npx`. From this directory:
