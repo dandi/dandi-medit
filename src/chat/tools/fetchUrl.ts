@@ -389,7 +389,7 @@ export const fetchUrlTool: QPTool = {
       const summary =
         matches === 0
           ? `No passages mention "${find}" in the ${content.length} characters retrieved.`
-          : `${matches} sentence${matches === 1 ? "" : "s"} mention "${find}"; showing them with context.`;
+          : `${matches} sentence${matches === 1 ? "" : "s"} mention${matches === 1 ? "s" : ""} "${find}"; showing ${matches === 1 ? "it" : "them"} with context.`;
       return {
         content: matches === 0 ? summary : `${summary}\n\n${excerpt}`,
         notes: [...notes, `The full content (${content.length} characters) was searched for "${find}" and only matching passages are shown.`],
