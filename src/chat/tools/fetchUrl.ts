@@ -23,6 +23,14 @@ const OPENALEX_WORK_SELECT =
   "id,doi,title,display_name,authorships,publication_year,publication_date,funders,keywords";
 
 const EUROPE_PMC_REST = "https://www.ebi.ac.uk/europepmc/webservices/rest";
+// PubMed Central full text through NCBI E-utilities, which sends CORS headers
+const NCBI_EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi";
+
+// Limits for the `find` option: how many passages to return and how long
+// the combined excerpt may be, so a targeted search stays cheap.
+const MAX_PASSAGES = 15;
+const MAX_PASSAGE_LENGTH = 700;
+const MAX_EXCERPT_LENGTH = 8000;
 
 const FETCH_HEADERS = {
   Accept:
@@ -155,25 +163,126 @@ const fetchPublication = async (ref: PublicationRef): Promise<{ content: string;
       : "(no abstract available)";
     parts.push(`Europe PMC record:\n${header}\n\nAbstract:\n${abstract}`);
 
-    if (record.pmcid && record.isOpenAccess === "Y") {
-      try {
-        const response = await fetch(`${EUROPE_PMC_REST}/${record.pmcid}/fullTextXML`, {
-          headers: { Accept: "application/xml" },
-        });
-        if (response.ok) {
-          const xml = await response.text();
-          parts.push(`Full text (Europe PMC ${record.pmcid}):\n${extractTextFromHtml(xml)}`);
-        } else {
-          notes.push(`Europe PMC full text for ${record.pmcid} is not available: HTTP ${response.status}`);
-        }
-      } catch (error) {
-        notes.push(`Europe PMC full text fetch failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    if (record.pmcid) {
+      const fullText = await fetchFullText(record.pmcid, notes);
+      if (fullText) {
+        parts.push(`Full text (${fullText.source}):\n${fullText.text}`);
+      } else {
+        notes.push(
+          "Full text is not available from Europe PMC or PubMed Central. These are the only full-text sources this tool can read, so do not try other URLs for this paper; ask the user for the information instead.",
+        );
       }
+    } else {
+      notes.push(
+        "This publication has no PubMed Central record, so no full text is available to this tool. Do not try other URLs for this paper; ask the user for the information instead.",
+      );
     }
   }
 
   return { content: parts.join("\n\n"), notes };
 };
+
+/**
+ * Fetch the full text of a PubMed Central article. Europe PMC serves XML for
+ * open-access articles; author manuscripts and others are often only in
+ * PubMed Central itself, which NCBI's E-utilities serve with CORS headers.
+ * Returns null, with a note per source tried, when neither has it.
+ */
+const fetchFullText = async (
+  pmcid: string,
+  notes: string[],
+): Promise<{ text: string; source: string } | null> => {
+  try {
+    const response = await fetch(`${EUROPE_PMC_REST}/${pmcid}/fullTextXML`, {
+      headers: { Accept: "application/xml" },
+    });
+    if (response.ok) {
+      return { text: extractTextFromHtml(await response.text()), source: `Europe PMC ${pmcid}` };
+    }
+    notes.push(`Europe PMC has no full text for ${pmcid} (HTTP ${response.status}).`);
+  } catch (error) {
+    notes.push(`Europe PMC full text fetch failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
+  const numericId = pmcid.replace(/^PMC/i, "");
+  try {
+    const response = await fetch(`${NCBI_EFETCH}?db=pmc&id=${encodeURIComponent(numericId)}&rettype=xml`, {
+      headers: { Accept: "application/xml" },
+    });
+    if (response.ok) {
+      const xml = await response.text();
+      // E-utilities answers 200 with a small error document when there is no article
+      if (/<pmc-articleset|<article\b/i.test(xml)) {
+        return { text: extractTextFromHtml(xml), source: `PubMed Central ${pmcid} via NCBI E-utilities` };
+      }
+      notes.push(`PubMed Central has no full text for ${pmcid}.`);
+    } else {
+      notes.push(`PubMed Central full text for ${pmcid} is not available (HTTP ${response.status}).`);
+    }
+  } catch (error) {
+    notes.push(`PubMed Central full text fetch failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+  return null;
+};
+
+/**
+ * Build a case-insensitive pattern from a `find` value: terms separated by
+ * "|" are matched as literal alternatives.
+ */
+const buildFindPattern = (find: string): RegExp | null => {
+  const terms = find
+    .split("|")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return terms.length > 0 ? new RegExp(terms.join("|"), "i") : null;
+};
+
+/**
+ * Return the passages of a text that mention any of the `find` terms, each
+ * with one sentence of context on either side, so a question like "does the
+ * paper state an IACUC protocol" costs a few hundred characters instead of
+ * the whole article.
+ */
+export function extractPassages(text: string, find: string): { excerpt: string; matches: number } {
+  const pattern = buildFindPattern(find);
+  if (!pattern) return { excerpt: "", matches: 0 };
+  const sentences = text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"'([])/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  const hits = sentences.map((sentence) => pattern.test(sentence));
+  const matches = hits.filter(Boolean).length;
+  const passages: string[] = [];
+  let i = 0;
+  while (i < sentences.length && passages.length < MAX_PASSAGES) {
+    if (!hits[i]) {
+      i += 1;
+      continue;
+    }
+    // Extend the window over consecutive hits, then add one sentence each side
+    let end = i;
+    while (end + 1 < sentences.length && hits[end + 1]) end += 1;
+    const start = Math.max(0, i - 1);
+    const stop = Math.min(sentences.length - 1, end + 1);
+    let passage = sentences.slice(start, stop + 1).join(" ");
+    if (passage.length > MAX_PASSAGE_LENGTH) {
+      const at = passage.search(pattern);
+      const from = Math.max(0, at - Math.floor(MAX_PASSAGE_LENGTH / 2));
+      passage = `${from > 0 ? "..." : ""}${passage.slice(from, from + MAX_PASSAGE_LENGTH)}...`;
+    }
+    passages.push(passage);
+    i = stop + 1;
+  }
+
+  let excerpt = passages.map((passage, index) => `${index + 1}. ${passage}`).join("\n\n");
+  if (excerpt.length > MAX_EXCERPT_LENGTH) {
+    excerpt = `${excerpt.slice(0, MAX_EXCERPT_LENGTH)}\n\n[Excerpt truncated]`;
+  }
+  return { excerpt, matches };
+}
 
 /**
  * Fetch an arbitrary page. Try the site directly first, since some send CORS
@@ -241,7 +350,7 @@ export const fetchUrlTool: QPTool = {
   toolFunction: {
     name: "fetch_url",
     description:
-      "Fetch content from an external URL to retrieve information. Use this tool when you need to get data from a scientific article, publication, or other external resource. Publication links (doi.org, PubMed, bioRxiv, medRxiv) are resolved through OpenAlex and Europe PMC and return structured metadata, the abstract, and open-access full text when available; prefer these over journal landing pages. Other web pages can only be fetched when the deployment has a CORS proxy configured.",
+      "Fetch content from an external URL to retrieve information. Use this tool when you need to get data from a scientific article, publication, or other external resource. Publication links (doi.org, PubMed, bioRxiv, medRxiv) are resolved in one call: OpenAlex metadata, the abstract, and the full text from Europe PMC or PubMed Central when either has it. If the result says full text is not available, no other URL will get it; ask the user. Use the optional 'find' parameter to return only the passages mentioning given terms instead of the whole text. Other web pages can only be fetched when the deployment has a CORS proxy configured.",
     parameters: {
       type: "object",
       properties: {
@@ -255,17 +364,37 @@ export const fetchUrlTool: QPTool = {
           description:
             "A brief explanation of why you need to fetch this URL and what information you're looking for.",
         },
+        find: {
+          type: "string",
+          description:
+            "Optional. Terms separated by '|' (for example 'IACUC|ethics|approved|protocol'). When given, the result contains only the passages that mention any term, with a sentence of context, instead of the full content. Use it whenever you are looking for something specific in a long paper.",
+        },
       },
       required: ["url"],
     },
   },
 
   execute: async (
-    params: { url: string; reason?: string },
+    params: { url: string; reason?: string; find?: string },
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _context: ToolExecutionContext
   ) => {
     const { url, reason } = params;
+    const find = typeof params.find === "string" && params.find.trim() ? params.find.trim() : null;
+
+    // Reduce a long text to the passages that mention the requested terms
+    const applyFind = (content: string, notes: string[]): { content: string; notes: string[] } => {
+      if (!find) return { content, notes };
+      const { excerpt, matches } = extractPassages(content, find);
+      const summary =
+        matches === 0
+          ? `No passages mention "${find}" in the ${content.length} characters retrieved.`
+          : `${matches} sentence${matches === 1 ? "" : "s"} mention${matches === 1 ? "s" : ""} "${find}"; showing ${matches === 1 ? "it" : "them"} with context.`;
+      return {
+        content: matches === 0 ? summary : `${summary}\n\n${excerpt}`,
+        notes: [...notes, `The full content (${content.length} characters) was searched for "${find}" and only matching passages are shown.`],
+      };
+    };
 
     // Validate URL format
     let parsedUrl: URL;
@@ -304,7 +433,8 @@ export const fetchUrlTool: QPTool = {
             }),
           };
         }
-        return { result: serializeResult({ url, reason, content, notes }) };
+        const found = applyFind(content, notes);
+        return { result: serializeResult({ url, reason, content: found.content, notes: found.notes }) };
       } catch (error) {
         return {
           result: JSON.stringify({
@@ -366,6 +496,10 @@ export const fetchUrlTool: QPTool = {
         content = extractTextFromHtml(html);
       }
 
+      if (find) {
+        const found = applyFind(content, []);
+        return { result: serializeResult({ url, reason, content: found.content, notes: found.notes }) };
+      }
       return { result: serializeResult({ url, reason, content, jsonContent }) };
     } catch (error) {
       return {
@@ -384,34 +518,22 @@ export const fetchUrlTool: QPTool = {
 
 **IMPORTANT: Always use this tool when a user asks you to get information from an external URL. Never fabricate or hallucinate information - if you cannot fetch the URL, tell the user.**
 
-**Usage:**
-- Provide the URL you want to fetch
-- Optionally explain why you need to fetch it
+**Publications (DOI, PubMed, bioRxiv, medRxiv links):**
+- One call returns OpenAlex metadata (authors, ORCIDs, affiliations, funders), the Europe PMC record with the abstract, and the full text when Europe PMC or PubMed Central has it.
+- The result's notes say which full-text source answered. If they say full text is not available, that is final: this tool has no other way to read the paper, so do not try journal pages, PMC pages, or other URL forms. Ask the user for what you need.
+- Use "find" when you are looking for something specific, for example { "url": "https://doi.org/10.1016/j.neuron.2016.03.036", "find": "IACUC|ethics|approved|protocol" } returns only the sentences that mention those terms, with context. This is much cheaper than reading the whole paper.
 
-**Publication links (work in every deployment):**
-- doi.org / dx.doi.org links, PubMed links (pubmed.ncbi.nlm.nih.gov/<pmid>), and bioRxiv / medRxiv pages are not fetched as web pages. They are resolved through OpenAlex (structured metadata: title, authors, dates, funders, keywords) and Europe PMC (abstract, and full text for open-access papers).
-- When a user gives you a journal landing page, prefer its DOI link if you know it; the DOI route returns cleaner data than the page.
-
-**Other pages (need a configured CORS proxy):**
-- Journal sites, GitHub, Wikipedia and similar pages are fetched directly when the site permits it, otherwise through the proxy configured by the deployment. If no proxy is configured, the tool returns an error saying so; in that case suggest a DOI or PubMed link, or ask the user to paste the relevant text.
-- APIs that send CORS headers (OpenAlex, Crossref, ROR, EBI, Europe PMC) are fetched directly.
-
-**Allowed domains:**
-This tool only works with approved scientific/academic domains including:
-- Scientific journals (eLife, Nature, Science, Cell, PNAS, PLOS, etc.)
-- Preprint servers (bioRxiv, medRxiv, arXiv)
-- DOI resolvers (doi.org)
-- PubMed/NIH resources
-- GitHub, DANDI Archive, Wikipedia
+**Other pages:**
+- Pages on allowed domains (GitHub, Wikipedia, ontology services, OpenAlex, ROR, Europe PMC) are fetched directly or through the deployment's CORS proxy. Sites that block automated access (for example PMC's browser check) cannot be read.
+- Identifiers do not need to be verified with this tool: propose_metadata_change checks ORCIDs against the ORCID API and ROR identifiers against the ROR API when a change is applied.
 
 **Examples:**
 - Resolve a DOI: { "url": "https://doi.org/10.7554/eLife.78362", "reason": "To get publication details" }
-- Resolve a PubMed entry: { "url": "https://pubmed.ncbi.nlm.nih.gov/36193886/", "reason": "To get the abstract" }
-- Fetch an eLife article page (requires a proxy): { "url": "https://elifesciences.org/articles/78362", "reason": "To extract metadata for the dandiset" }
+- Find the ethics statement: { "url": "https://doi.org/10.7554/eLife.78362", "find": "IACUC|IRB|ethics|approved" }
+- Funding for a paper: { "url": "https://api.openalex.org/works/doi:10.7554/eLife.78362?select=id,title,funders,awards" }
 
 **Notes:**
-- Content is returned as text extracted from the webpage or API responses
-- Very long content will be truncated; metadata and abstract come before full text so they survive truncation
+- Very long content is truncated; use "find" to avoid that for long papers
 - If fetching fails, an error message will explain why
 - Always verify the fetched content before using it to propose metadata changes`;
   },
