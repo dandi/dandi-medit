@@ -1,0 +1,66 @@
+{
+    "id": "https://openalex.org/W2343813323",
+    "doi": "https://doi.org/10.1016/j.neuron.2016.03.036",
+    "title": "Network Homeostasis and State Dynamics of Neocortical Sleep",
+    "funders": [
+        {
+            "id": "https://openalex.org/F4320337346",
+            "display_name": "National Institute of Mental Health",
+            "ror": "https://ror.org/04xeg9z08"
+        },
+        {
+            "id": "https://openalex.org/F4320337359",
+            "display_name": "National Institute of Neurological Disorders and Stroke",
+            "ror": "https://ror.org/01s5ya894"
+        },
+        {
+            "id": "https://openalex.org/F4320337611",
+            "display_name": "Eunice Kennedy Shriver National Institute of Child Health and Human Development",
+            "ror": "https://ror.org/04byxyr05"
+        }
+    ],
+    "awards": [
+        {
+            "id": "https://openalex.org/G1898711858",
+            "display_name": null,
+            "funder_award_id": "K12HD000850",
+            "funder_id": "https://openalex.org/F4320337611",
+            "funder_display_name": "Eunice Kennedy Shriver National Institute of Child Health and Human Development"
+        },
+        {
+            "id": "https://openalex.org/G216088753",
+            "display_name": null,
+            "funder_award_id": "K08MH107662",
+            "funder_id": "https://openalex.org/F4320337346",
+            "funder_display_name": "National Institute of Mental Health"
+        },
+        {
+            "id": "https://openalex.org/G5129627128",
+            "display_name": null,
+            "funder_award_id": "U01 NS090583",
+            "funder_id": "https://openalex.org/F4320337359",
+            "funder_display_name": "National Institute of Neurological Disorders and Stroke"
+        },
+        {
+            "id": "https://openalex.org/G5272321218",
+            "display_name": null,
+            "funder_award_id": "R01 MH054671",
+            "funder_id": "https://openalex.org/F4320337346",
+            "funder_display_name": "National Institute of Mental Health"
+        },
+        {
+            "id": "https://openalex.org/G7225667397",
+            "display_name": null,
+            "funder_award_id": "U01 NS090526",
+            "funder_id": "https://openalex.org/F4320337359",
+            "funder_display_name": "National Institute of Neurological Disorders and Stroke"
+        },
+        {
+            "id": "https://openalex.org/G781811545",
+            "display_name": null,
+            "funder_award_id": "R01 MH107396",
+            "funder_id": "https://openalex.org/F4320337346",
+            "funder_display_name": "National Institute of Mental Health"
+        }
+    ]
+}
