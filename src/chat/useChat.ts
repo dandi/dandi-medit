@@ -7,6 +7,7 @@ import { proposeMetadataChangeTool } from "./tools/proposeMetadataChange";
 import { fetchUrlTool } from "./tools/fetchUrl";
 import { lookupOntologyTermTool } from "./tools/lookupOntologyTerm";
 import { importContributorsTool } from "./tools/importContributors";
+import { importFundersTool } from "./tools/importFunders";
 import { fetchSchema } from "../schemas/schemaService";
 import { parseSuggestions } from "./parseSuggestions";
 import { getStoredModel, setStoredModel } from "./apiKeyStorage";
@@ -247,7 +248,10 @@ const useChat = (options: UseChatOptions) => {
     loadSchema();
   }, [dandisetSchema]);
 
-  const tools: QPTool[] = useMemo(() => [proposeMetadataChangeTool, importContributorsTool, fetchUrlTool, lookupOntologyTermTool], []);
+  const tools: QPTool[] = useMemo(
+    () => [proposeMetadataChangeTool, importContributorsTool, importFundersTool, fetchUrlTool, lookupOntologyTermTool],
+    [],
+  );
 
   const toolExecutionContext: ToolExecutionContext = useMemo(
     () => ({
@@ -301,7 +305,9 @@ Your role is to help users understand and improve their dandiset metadata by:
 - After importing, report authors without an ORCID and any unresolvedAffiliations (affiliation text that neither ROR nor OpenAlex could confirm, kept as plain names) so the user can complete them, and ask who the contact person is if none is set.
 - ORCID format: 0000-0000-0000-0000 (the bare identifier only, with a trailing X allowed in the last group). The schema rejects the URL form https://orcid.org/0000-0000-0000-0000.
 - ROR format: https://ror.org/XXXXXXX
-- To get funding/award information, use fetch_url on https://api.openalex.org/works/doi:[doi]?select=id,title,funders,awards
+- To add funding information from a paper, use the import_funders_from_publication tool with the DOI. It fetches the funders and awards from OpenAlex and builds the entries in code. Do NOT fetch the OpenAlex work yourself and retype the funders, and do not look up RORs for funders; OpenAlex already supplies them. If the dandiset already has funders, run it with dryRun first, show the user what would be added, then run it again to apply.
+- The funder tool sets schemaKey Organization and the dcite:Funder role, and creates one entry per award, so a funder with three grants gets three entries. Award numbers must be the bare identifier ("R01 MH054671"), never prefixed with words such as "Grant No.".
+- After importing funders, report anything listed under fundersWithoutAward or fundersWithoutRor so the user can supply the missing award numbers and RORs.
 
 **SUGGESTED PROMPTS:**
 - You can include suggested follow-up prompts for the user in any of your responses
