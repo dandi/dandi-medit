@@ -17,11 +17,135 @@ import type { Delta } from 'jsondiffpatch';
 // Re-export Delta type for consumers
 export type { Delta };
 
+/**
+ * Pairing of array items between the original and the modified metadata.
+ *
+ * jsondiffpatch decides which items of an array correspond to each other by
+ * an `objectHash`, so an edit to an item is reported as a change inside it
+ * only when both versions hash the same. No single field works as that key
+ * for dandiset metadata: the `identifier` (an ORCID, a ROR, a DOI) is often
+ * the field being added, so an item keyed by it does not match itself once
+ * it gains one, and an item keyed by its `name` does not match itself after
+ * a rename. Instead, `computeDelta` pairs the items of corresponding arrays
+ * up front, trying the more specific key first, and hands jsondiffpatch a
+ * shared key for each pair:
+ *
+ *   1. the same object reference on both sides
+ *   2. `@id` or `id`
+ *   3. `identifier`
+ *   4. `schemaKey` and `name`
+ *   5. `url`
+ *   6. the same position, for items that have none of those fields (for
+ *      example the single entry of `access`)
+ *
+ * Adding an ORCID to a person, renaming a funder that has a ROR, and fixing
+ * an access status all show up as edits within the item. Renaming an item
+ * that has no identifier still shows as a removal plus an addition.
+ *
+ * Only diff computation uses this; patching addresses array items by index,
+ * so deltas computed before this pairing existed (for example in proposal
+ * links that are already in circulation) still apply.
+ */
+const itemKeys = new WeakMap<object, string>();
+let nextItemKey = 0;
+
+const KEY_STAGES: Array<(item: any) => string | undefined> = [
+  (item) => (item['@id'] != null ? `@id:${item['@id']}` : item.id != null ? `id:${item.id}` : undefined),
+  (item) => (item.identifier ? `identifier:${item.identifier}` : undefined),
+  (item) => (item.name ? `name:${item.schemaKey ?? ''}:${item.name}` : undefined),
+  (item) => (item.url ? `url:${item.url}` : undefined),
+];
+
+function isPlainObject(value: any): value is Record<string, any> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasNoKeys(item: any): boolean {
+  return KEY_STAGES.every((stage) => stage(item) === undefined);
+}
+
+/**
+ * Pair the object items of two arrays. Returns index pairs [old, new];
+ * items left out of the result have no counterpart on the other side.
+ */
+export function pairArrayItems(oldItems: any[], newItems: any[]): Array<[number, number]> {
+  const pairs: Array<[number, number]> = [];
+  const oldFree = new Set<number>();
+  const newFree = new Set<number>();
+  oldItems.forEach((item, i) => { if (isPlainObject(item)) oldFree.add(i); });
+  newItems.forEach((item, j) => { if (isPlainObject(item)) newFree.add(j); });
+  const pair = (i: number, j: number) => {
+    pairs.push([i, j]);
+    oldFree.delete(i);
+    newFree.delete(j);
+  };
+
+  const oldByRef = new Map<object, number>();
+  for (const i of oldFree) oldByRef.set(oldItems[i], i);
+  for (const j of [...newFree]) {
+    const i = oldByRef.get(newItems[j]);
+    if (i !== undefined && oldFree.has(i)) pair(i, j);
+  }
+
+  for (const stage of KEY_STAGES) {
+    const oldByKey = new Map<string, number[]>();
+    for (const i of oldFree) {
+      const key = stage(oldItems[i]);
+      if (key === undefined) continue;
+      const list = oldByKey.get(key);
+      if (list) list.push(i); else oldByKey.set(key, [i]);
+    }
+    for (const j of [...newFree]) {
+      const key = stage(newItems[j]);
+      if (key === undefined) continue;
+      const i = oldByKey.get(key)?.shift();
+      if (i !== undefined) pair(i, j);
+    }
+  }
+
+  for (const j of [...newFree]) {
+    if (oldFree.has(j) && hasNoKeys(newItems[j]) && hasNoKeys(oldItems[j])) pair(j, j);
+  }
+
+  pairs.sort((a, b) => a[1] - b[1]);
+  return pairs;
+}
+
+/**
+ * Walk two versions of the metadata together and record a shared key for
+ * every pair of array items that correspond, and a unique key for every
+ * item without a counterpart.
+ */
+function recordItemKeys(oldValue: any, newValue: any): void {
+  if (Array.isArray(oldValue) && Array.isArray(newValue)) {
+    const pairs = pairArrayItems(oldValue, newValue);
+    const paired = new Set<object>();
+    for (const [i, j] of pairs) {
+      const key = `$pair:${nextItemKey++}`;
+      itemKeys.set(oldValue[i], key);
+      itemKeys.set(newValue[j], key);
+      paired.add(oldValue[i]);
+      paired.add(newValue[j]);
+      recordItemKeys(oldValue[i], newValue[j]);
+    }
+    for (const item of [...oldValue, ...newValue]) {
+      if (isPlainObject(item) && !paired.has(item)) {
+        itemKeys.set(item, `$only:${nextItemKey++}`);
+      }
+    }
+  } else if (isPlainObject(oldValue) && isPlainObject(newValue)) {
+    for (const key of Object.keys(oldValue)) {
+      if (key in newValue) recordItemKeys(oldValue[key], newValue[key]);
+    }
+  }
+}
+
 // Create a configured jsondiffpatch instance
 const diffpatcher = jsondiffpatch.create({
-  // Match objects by id or @id field (common in JSON-LD metadata)
-  objectHash: function (obj: any) {
-    return obj?.['@id'] || obj?.id || obj?.identifier || JSON.stringify(obj);
+  objectHash: function (obj: any, index?: number) {
+    // Arrays reached through the walk in computeDelta always have a recorded
+    // key; the fallback covers anything else, such as an array of arrays.
+    return itemKeys.get(obj) ?? obj?.['@id'] ?? obj?.id ?? obj?.identifier ?? `$index:${index}`;
   },
   arrays: {
     detectMove: true,
@@ -38,6 +162,7 @@ const diffpatcher = jsondiffpatch.create({
  * Returns a jsondiffpatch Delta object, or undefined if no differences.
  */
 export function computeDelta(original: any, modified: any): Delta | undefined {
+  recordItemKeys(original, modified);
   return diffpatcher.diff(original, modified);
 }
 
