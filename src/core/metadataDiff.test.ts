@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Delta } from './metadataDiff';
 import {
   applyDelta,
   changeToDescription,
@@ -6,6 +7,7 @@ import {
   deltaToChanges,
   formatValue,
   hasDifferences,
+  pairArrayItems,
   reverseDelta,
   summarizePendingChanges,
 } from './metadataDiff';
@@ -105,6 +107,113 @@ describe('deltaToChanges', () => {
       computeDelta({ keywords: ['a', 'b'] }, { keywords: ['a'] }),
     );
     expect(removed).toEqual([{ path: 'keywords[1]', type: 'removed', oldValue: 'b' }]);
+  });
+});
+
+describe('matching array items across an edit', () => {
+  const funder = {
+    name: 'William K. Bowes, Jr. Foundation',
+    roleName: ['dcite:Funder'],
+    schemaKey: 'Organization',
+    includeInCitation: false,
+  };
+
+  it('reports an identifier added to a contributor as a change inside the item', () => {
+    const original = { contributor: [{ name: 'A', schemaKey: 'Person' }, funder] };
+    const modified = JSON.parse(JSON.stringify(original));
+    modified.contributor[1].identifier = 'https://ror.org/0525q3519';
+    expect(deltaToChanges(computeDelta(original, modified))).toEqual([
+      { path: 'contributor[1].identifier', type: 'added', newValue: 'https://ror.org/0525q3519' },
+    ]);
+  });
+
+  it('reports an ORCID added to a person as a change inside the item', () => {
+    const original = { contributor: [{ name: 'Smith, Jane', schemaKey: 'Person' }] };
+    const modified = { contributor: [{ name: 'Smith, Jane', schemaKey: 'Person', identifier: '0000-0001-2345-6789' }] };
+    expect(deltaToChanges(computeDelta(original, modified))).toEqual([
+      { path: 'contributor[0].identifier', type: 'added', newValue: '0000-0001-2345-6789' },
+    ]);
+  });
+
+  it('matches an item with no name by position', () => {
+    const original = { access: [{ schemaKey: 'AccessRequirements', status: 'dandi:EmbargoedAccess' }] };
+    const modified = { access: [{ schemaKey: 'AccessRequirements', status: 'dandi:OpenAccess' }] };
+    expect(deltaToChanges(computeDelta(original, modified))).toEqual([
+      { path: 'access[0].status', type: 'modified', oldValue: 'dandi:EmbargoedAccess', newValue: 'dandi:OpenAccess' },
+    ]);
+  });
+
+  it('still reports a new contributor as an added item', () => {
+    const original = { contributor: [funder] };
+    const modified = { contributor: [funder, { name: 'Doe, John', schemaKey: 'Person' }] };
+    expect(deltaToChanges(computeDelta(original, modified))).toEqual([
+      { path: 'contributor[1]', type: 'added', newValue: { name: 'Doe, John', schemaKey: 'Person' } },
+    ]);
+  });
+
+  it('applies a delta that was computed by matching whole items', () => {
+    // Proposal links created before name-based matching encode this edit as
+    // a removal plus an addition at the same index. Patching works by index,
+    // so those links must keep producing the same result.
+    const original = { contributor: [funder] };
+    const withIdentifier = { ...funder, identifier: 'https://ror.org/0525q3519' };
+    const legacyDelta: Delta = { contributor: { 0: [withIdentifier], _t: 'a', _0: [funder, 0, 0] } };
+    const patched = applyDelta(JSON.parse(JSON.stringify(original)), legacyDelta);
+    expect(patched).toEqual({ contributor: [withIdentifier] });
+  });
+
+  it('reports a rename of an item that keeps its identifier as a change inside the item', () => {
+    const original = { contributor: [{ ...funder, identifier: 'https://ror.org/0525q3519' }] };
+    const modified = { contributor: [{ ...funder, identifier: 'https://ror.org/0525q3519', name: 'Bowes Foundation' }] };
+    expect(deltaToChanges(computeDelta(original, modified))).toEqual([
+      { path: 'contributor[0].name', type: 'modified', oldValue: funder.name, newValue: 'Bowes Foundation' },
+    ]);
+  });
+
+  it('reports a corrected identifier as a change inside the item', () => {
+    const original = { contributor: [{ name: 'Smith, Jane', schemaKey: 'Person', identifier: '0000-0001-2345-6789' }] };
+    const modified = { contributor: [{ name: 'Smith, Jane', schemaKey: 'Person', identifier: '0000-0001-2345-6780' }] };
+    expect(deltaToChanges(computeDelta(original, modified))).toEqual([
+      { path: 'contributor[0].identifier', type: 'modified', oldValue: '0000-0001-2345-6789', newValue: '0000-0001-2345-6780' },
+    ]);
+  });
+
+  it('matches items in arrays nested inside matched items', () => {
+    const original = { contributor: [{ name: 'Smith, Jane', schemaKey: 'Person', affiliation: [{ schemaKey: 'Affiliation', name: 'MIT' }] }] };
+    const modified = JSON.parse(JSON.stringify(original));
+    modified.contributor[0].affiliation[0].identifier = 'https://ror.org/042nb2s44';
+    expect(deltaToChanges(computeDelta(original, modified))).toEqual([
+      { path: 'contributor[0].affiliation[0].identifier', type: 'added', newValue: 'https://ror.org/042nb2s44' },
+    ]);
+  });
+
+  it('pairs items by reference, then id, identifier, name, url, and finally position', () => {
+    const shared = { name: 'shared' };
+    const oldItems = [
+      shared,
+      { id: 'a', name: 'old a' },
+      { identifier: 'i1', name: 'old i1' },
+      { schemaKey: 'Person', name: 'Doe, John' },
+      { url: 'https://x', title: 't' },
+      { status: 'old' },
+      { name: 'gone' },
+    ];
+    const newItems = [
+      { name: 'new' },
+      { status: 'new' },
+      { url: 'https://x', title: 'u' },
+      { schemaKey: 'Person', name: 'Doe, John', identifier: 'orcid' },
+      { identifier: 'i1', name: 'new i1' },
+      { id: 'a', name: 'new a' },
+      shared,
+    ];
+    expect(pairArrayItems(oldItems, newItems)).toEqual([
+      [4, 2],
+      [3, 3],
+      [2, 4],
+      [1, 5],
+      [0, 6],
+    ]);
   });
 });
 
