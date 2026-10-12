@@ -43,7 +43,7 @@ The assistant also proposes short follow-up prompts, which appear as clickable c
 
 ### Models and Keys
 
-Requests go to a shared completion worker at `qp-worker.neurosift.app`, which talks to OpenRouter. A subset of the model list is marked free, currently the smaller OpenAI, Google, Moonshot, and DeepSeek models, and those run on a key held by the worker at no cost to you. The default is `deepseek/deepseek-v4-flash-0731`.
+Requests go to a shared completion worker at `qp-worker.ben-dichter.workers.dev` (the QP worker, hosted by CatalystNeuro), which talks to OpenRouter. A subset of the model list is marked free, currently the smaller OpenAI, Google, Moonshot, and DeepSeek models, and those run on a key held by the worker at no cost to you. The default is `deepseek/deepseek-v4-flash-0731`.
 
 The remaining models, such as `openai/gpt-4o` and the Claude Sonnet models, require your own OpenRouter key. Enter it in the chat settings dialog, where it is stored in browser local storage and sent with each request. The settings dialog shows the per-million-token prices for each paid model, and the chat panel tracks estimated cost for the conversation. You can also type any OpenRouter model ID that is not on the list.
 
