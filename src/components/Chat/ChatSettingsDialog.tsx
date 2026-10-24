@@ -26,8 +26,6 @@ import {
 } from "../../chat/availableModels";
 import {
   getStoredOpenRouterApiKey,
-  getStoredReasoningEffort,
-  setStoredReasoningEffort,
   setStoredOpenRouterApiKey,
   clearStoredOpenRouterApiKey,
   maskApiKey,
@@ -38,6 +36,8 @@ interface ChatSettingsDialogProps {
   onClose: () => void;
   currentModel: string;
   onModelChange: (model: string) => void;
+  reasoningEffort: ReasoningEffort;
+  onReasoningEffortChange: (effort: ReasoningEffort) => void;
 }
 
 interface ModelAutocompleteProps {
@@ -123,13 +123,12 @@ const ChatSettingsDialog: FunctionComponent<ChatSettingsDialogProps> = ({
   onClose,
   currentModel,
   onModelChange,
+  reasoningEffort,
+  onReasoningEffortChange,
 }) => {
   const [apiKey, setApiKey] = useState<string>("");
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [refreshKey, setRefreshKey] = useState<number>(0);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
-    getStoredReasoningEffort,
-  );
   
   // Check for stored key on each render when open (derived state)
   const hasStoredKey = useMemo(() => {
@@ -177,10 +176,7 @@ const ChatSettingsDialog: FunctionComponent<ChatSettingsDialogProps> = ({
                 size="small"
                 value={reasoningEffort}
                 onChange={(_e, value: ReasoningEffort | null) => {
-                  if (value) {
-                    setStoredReasoningEffort(value);
-                    setReasoningEffort(value);
-                  }
+                  if (value) onReasoningEffortChange(value);
                 }}
               >
                 {REASONING_EFFORTS.map((effort) => (
