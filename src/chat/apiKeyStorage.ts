@@ -1,3 +1,9 @@
+import {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+  ReasoningEffort,
+} from "./availableModels";
+
 const OPENROUTER_API_KEY_STORAGE_KEY = "openrouter_api_key";
 
 export const getStoredOpenRouterApiKey = (): string | null => {
@@ -41,6 +47,28 @@ export const setStoredModel = (model: string): void => {
     localStorage.setItem(MODEL_STORAGE_KEY, model);
   } catch (error) {
     console.error("Error saving model to localStorage:", error);
+  }
+};
+
+const REASONING_EFFORT_STORAGE_KEY = "reasoning_effort";
+
+export const getStoredReasoningEffort = (): ReasoningEffort => {
+  try {
+    const stored = localStorage.getItem(REASONING_EFFORT_STORAGE_KEY);
+    if (stored && REASONING_EFFORTS.includes(stored as ReasoningEffort)) {
+      return stored as ReasoningEffort;
+    }
+  } catch (error) {
+    console.error("Error reading reasoning effort from localStorage:", error);
+  }
+  return DEFAULT_REASONING_EFFORT;
+};
+
+export const setStoredReasoningEffort = (effort: ReasoningEffort): void => {
+  try {
+    localStorage.setItem(REASONING_EFFORT_STORAGE_KEY, effort);
+  } catch (error) {
+    console.error("Error saving reasoning effort to localStorage:", error);
   }
 };
 

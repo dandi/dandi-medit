@@ -17,6 +17,7 @@ import { parseCompletionStream } from "./parseCompletionStream";
 import {
   COMPLETION_URL,
   buildCompletionHeaders,
+  buildReasoningSetting,
   describeCompletionError,
   isUsingOwnOpenRouterKey,
 } from "./completionApi";
@@ -628,6 +629,7 @@ ${plainTextConversation}`;
           messages: [{ role: "user", content: summarizationPrompt }],
           tools: [], // No tools for summarization
           app: "dandiset-metadata-assistant",
+          reasoning: buildReasoningSetting(chat.model),
         }),
         signal: abortController.signal,
       });
@@ -749,6 +751,7 @@ ${JSON.stringify(modifiedMetadata, null, 2)}
           messages: suggestionsChat.messages,
           tools: [], // No tools for initial suggestions
           app: "dandiset-metadata-assistant",
+          reasoning: buildReasoningSetting(suggestionsChat.model),
         }),
       });
 

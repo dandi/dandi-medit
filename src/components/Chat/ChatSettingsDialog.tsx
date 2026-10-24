@@ -12,12 +12,22 @@ import {
   IconButton,
   InputAdornment,
   Autocomplete,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
-import { AVAILABLE_MODELS, CHEAP_MODELS } from "../../chat/availableModels";
+import {
+  AVAILABLE_MODELS,
+  CHEAP_MODELS,
+  REASONING_EFFORTS,
+  ReasoningEffort,
+  supportsReasoningEffort,
+} from "../../chat/availableModels";
 import {
   getStoredOpenRouterApiKey,
+  getStoredReasoningEffort,
+  setStoredReasoningEffort,
   setStoredOpenRouterApiKey,
   clearStoredOpenRouterApiKey,
   maskApiKey,
@@ -117,6 +127,9 @@ const ChatSettingsDialog: FunctionComponent<ChatSettingsDialogProps> = ({
   const [apiKey, setApiKey] = useState<string>("");
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [refreshKey, setRefreshKey] = useState<number>(0);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
+    getStoredReasoningEffort,
+  );
   
   // Check for stored key on each render when open (derived state)
   const hasStoredKey = useMemo(() => {
@@ -152,6 +165,40 @@ const ChatSettingsDialog: FunctionComponent<ChatSettingsDialogProps> = ({
             currentModel={currentModel}
             onModelChange={onModelChange}
           />
+
+          {/* Reasoning effort, for models that accept one */}
+          {supportsReasoningEffort(currentModel) && (
+            <Box>
+              <Typography variant="subtitle2" gutterBottom>
+                Reasoning effort
+              </Typography>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={reasoningEffort}
+                onChange={(_e, value: ReasoningEffort | null) => {
+                  if (value) {
+                    setStoredReasoningEffort(value);
+                    setReasoningEffort(value);
+                  }
+                }}
+              >
+                {REASONING_EFFORTS.map((effort) => (
+                  <ToggleButton key={effort} value={effort}>
+                    {effort}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ mt: 1 }}
+              >
+                Higher effort gives more careful answers but responds more
+                slowly.
+              </Typography>
+            </Box>
+          )}
 
           {/* Model Info */}
           <Alert severity={requiresApiKey ? "warning" : "info"}>

@@ -1,4 +1,34 @@
-export const AVAILABLE_MODELS = [
+export type ReasoningEffort = "low" | "medium" | "high";
+
+export const REASONING_EFFORTS: ReasoningEffort[] = ["low", "medium", "high"];
+
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+
+export const AVAILABLE_MODELS: {
+  model: string;
+  label: string;
+  cost: { prompt: number; completion: number };
+  // Whether the model accepts a reasoning effort setting
+  reasoning?: boolean;
+}[] = [
+  {
+    model: "anthropic/claude-haiku-5.5",
+    label: "claude-haiku-5.5",
+    cost: {
+      prompt: 0.1,
+      completion: 0.5,
+    },
+    reasoning: true,
+  },
+  {
+    model: "openai/gpt-6-luna",
+    label: "gpt-6-luna",
+    cost: {
+      prompt: 0.1,
+      completion: 0.5,
+    },
+    reasoning: true,
+  },
   {
     model: "openai/gpt-4.1-mini",
     label: "gpt-4.1-mini",
@@ -83,6 +113,8 @@ export const AVAILABLE_MODELS = [
 
 // Cheap models that can use server API key
 export const CHEAP_MODELS = [
+  "anthropic/claude-haiku-5.5",
+  "openai/gpt-6-luna",
   "openai/gpt-4.1-mini",
   "openai/gpt-5-mini",
   "openai/gpt-4o-mini",
@@ -92,4 +124,7 @@ export const CHEAP_MODELS = [
   "deepseek/deepseek-v4-flash-0731"
 ];
 
-export const DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731";
+export const DEFAULT_MODEL = "anthropic/claude-haiku-5.5";
+
+export const supportsReasoningEffort = (model: string): boolean =>
+  AVAILABLE_MODELS.some((m) => m.model === model && m.reasoning);
