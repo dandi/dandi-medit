@@ -24,8 +24,16 @@ import CloseIcon from "@mui/icons-material/Close";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { useMetadataContext } from "../../context/useMetadataContext";
 import useChat from "../../chat/useChat";
-import { CHEAP_MODELS } from "../../chat/availableModels";
-import { getStoredOpenRouterApiKey } from "../../chat/apiKeyStorage";
+import {
+  CHEAP_MODELS,
+  ReasoningEffort,
+  supportsReasoningEffort,
+} from "../../chat/availableModels";
+import {
+  getStoredOpenRouterApiKey,
+  getStoredReasoningEffort,
+  setStoredReasoningEffort,
+} from "../../chat/apiKeyStorage";
 import ChatInput from "./ChatInput";
 import MessageItem from "./MessageItem";
 import ChatSettingsDialog from "./ChatSettingsDialog";
@@ -100,6 +108,18 @@ export function ChatPanel() {
 
   // Check if API key is required but not present
   const requiresApiKey = !CHEAP_MODELS.includes(chat.model);
+
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
+    getStoredReasoningEffort,
+  );
+  const handleReasoningEffortChange = useCallback((effort: ReasoningEffort) => {
+    setStoredReasoningEffort(effort);
+    setReasoningEffort(effort);
+  }, []);
+  // Model name for display, with the reasoning effort for models that take one
+  const modelDisplayName = supportsReasoningEffort(chat.model)
+    ? `${chat.model.split("/").pop()} (${reasoningEffort})`
+    : chat.model.split("/").pop();
   const hasApiKey = !!getStoredOpenRouterApiKey();
   const needsApiKey = requiresApiKey && !hasApiKey;
 
@@ -178,7 +198,11 @@ export function ChatPanel() {
     const lines: string[] = [];
     lines.push(`Dandiset Metadata Assistant - Chat Export`);
     lines.push(`Dandiset: ${dandisetId} (${version})`);
-    lines.push(`Model: ${chat.model}`);
+    lines.push(
+      supportsReasoningEffort(chat.model)
+        ? `Model: ${chat.model} (reasoning effort: ${reasoningEffort})`
+        : `Model: ${chat.model}`,
+    );
     lines.push(`Date: ${new Date().toISOString()}`);
     lines.push(`${"=".repeat(50)}\n`);
 
@@ -215,7 +239,7 @@ export function ChatPanel() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [chat.messages, chat.model, dandisetId, version]);
+  }, [chat.messages, chat.model, reasoningEffort, dandisetId, version]);
 
   const hasMetadata = !!versionInfo?.metadata;
 
@@ -261,7 +285,7 @@ export function ChatPanel() {
             </Button>
           )}
           <Chip
-            label={chat.model.split("/")[1]}
+            label={modelDisplayName}
             size="small"
             variant="outlined"
             onClick={() => setSettingsOpen(true)}
@@ -748,6 +772,8 @@ export function ChatPanel() {
         onClose={() => setSettingsOpen(false)}
         currentModel={chat.model}
         onModelChange={setChatModel}
+        reasoningEffort={reasoningEffort}
+        onReasoningEffortChange={handleReasoningEffortChange}
       />
 
       {/* Compress Confirmation Dialog */}

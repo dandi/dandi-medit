@@ -79,6 +79,7 @@ export type CompletionRequest = {
   messages: ChatMessage[];
   tools: ORTool[];
   app?: string;
+  reasoning?: { effort: "low" | "medium" | "high" };
 };
 
 export type MetadataOperationType = 'set' | 'delete' | 'insert' | 'append';

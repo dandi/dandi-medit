@@ -4,6 +4,7 @@ import { parseCompletionStream } from "./parseCompletionStream";
 import {
   COMPLETION_URL,
   buildCompletionHeaders,
+  buildReasoningSetting,
   describeCompletionError,
   isUsingOwnOpenRouterKey,
 } from "./completionApi";
@@ -46,6 +47,7 @@ const processCompletion = async (
       function: tool.toolFunction,
     })),
     app: "dandiset-metadata-assistant",
+    reasoning: buildReasoningSetting(chat.model),
   };
 
   const headers = buildCompletionHeaders();

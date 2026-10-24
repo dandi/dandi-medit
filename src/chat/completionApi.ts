@@ -1,4 +1,8 @@
-import { getStoredOpenRouterApiKey } from "./apiKeyStorage";
+import {
+  getStoredOpenRouterApiKey,
+  getStoredReasoningEffort,
+} from "./apiKeyStorage";
+import { ReasoningEffort, supportsReasoningEffort } from "./availableModels";
 
 export const COMPLETION_URL = "https://qp-worker.catalystneuro.workers.dev/api/completion";
 
@@ -16,6 +20,17 @@ export const buildCompletionHeaders = (): Record<string, string> => {
   }
   return headers;
 };
+
+/**
+ * The reasoning setting to send with a request for the given model: the
+ * user's chosen effort for models that accept one, and nothing otherwise.
+ */
+export const buildReasoningSetting = (
+  model: string,
+): { effort: ReasoningEffort } | undefined =>
+  supportsReasoningEffort(model)
+    ? { effort: getStoredReasoningEffort() }
+    : undefined;
 
 /**
  * Whether the user has supplied their own OpenRouter key, in which case a
